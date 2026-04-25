@@ -7,15 +7,18 @@ network access.
 """
 from __future__ import annotations
 
+import logging
 from typing import Iterable, Optional
 
 from telegram import Bot, BotCommand, BotCommandScopeChat, LinkPreviewOptions
 from telegram.constants import ParseMode
+from telegram.error import NetworkError, TimedOut
 from telegram.ext import (
     Application,
     ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
+    ContextTypes,
     Defaults,
 )
 
@@ -53,6 +56,49 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+class _PollingNetworkBlipFilter(logging.Filter):
+    """Drop the giant "Exception happened while polling for updates."
+    traceback that ``telegram.ext.Updater`` prints whenever the long-poll
+    HTTP connection drops.
+
+    PTB always retries with exponential backoff on these — the bot keeps
+    working — but the default ``logger.exception(...)`` call dumps the
+    full ``httpx.ReadError`` / ``httpcore.*`` traceback to stderr, which
+    is alarming and useless noise.  We replace it with a single warning
+    line via the structlog logger.
+    """
+
+    _NETWORK_EXC_TYPES: tuple[type[BaseException], ...] = (
+        # imported lazily to avoid circular imports at module load
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:  # type: ignore[override]
+        if record.exc_info and record.exc_info[1] is not None:
+            from telegram.error import NetworkError, TimedOut
+
+            if isinstance(record.exc_info[1], (NetworkError, TimedOut)):
+                logger.warning(
+                    "telegram_polling_network_blip",
+                    error_type=type(record.exc_info[1]).__name__,
+                    error=str(record.exc_info[1]) or "<empty>",
+                )
+                return False
+        return True
+
+
+_polling_filter_installed = False
+
+
+def _install_polling_filter() -> None:
+    global _polling_filter_installed
+    if _polling_filter_installed:
+        return
+    flt = _PollingNetworkBlipFilter()
+    for name in ("telegram.ext.Updater", "telegram.ext._updater", "telegram.updater"):
+        logging.getLogger(name).addFilter(flt)
+    _polling_filter_installed = True
+
+
 def build_application(
     *,
     trade_executor: TradeExecutor,
@@ -63,6 +109,8 @@ def build_application(
 ) -> Application:
     if not settings.telegram_bot_token:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is not set in the environment.")
+
+    _install_polling_filter()
 
     defaults = Defaults(
         parse_mode=ParseMode.MARKDOWN_V2,
@@ -108,7 +156,38 @@ def build_application(
         CallbackQueryHandler(callback_dispatcher, pattern=r"^(buy|ignore|mode|close):")
     )
 
+    # Silence transient long-poll network errors — PTB auto-reconnects,
+    # but by default it dumps the full traceback to stderr which makes
+    # the terminal look like the bot is dying when it isn't.  We log a
+    # one-line warning and let PTB carry on.
+    app.add_error_handler(_global_error_handler)
+
     return app
+
+
+async def _global_error_handler(
+    update: object, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Swallow transient httpx / Telegram network errors so the polling
+    loop's auto-retry doesn't spam stderr with full tracebacks.
+
+    Anything else (logic bugs, bad payloads, etc.) is re-logged at
+    ``error`` level with the traceback so we don't lose real failures.
+    """
+    err = context.error
+    if isinstance(err, (NetworkError, TimedOut)):
+        logger.warning(
+            "telegram_network_blip",
+            error_type=type(err).__name__,
+            error=str(err) or "<empty>",
+        )
+        return
+    logger.error(
+        "telegram_handler_error",
+        error_type=type(err).__name__ if err else "Unknown",
+        error=str(err) if err else "",
+        exc_info=err,
+    )
 
 
 # ---------------------------------------------------------------------------

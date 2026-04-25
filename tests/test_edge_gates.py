@@ -103,13 +103,26 @@ def test_gate_blocks_when_net_edge_missing() -> None:
     assert "edge_below_min" in b.gate_reason
 
 
-def test_gate_blocks_when_phase_is_retail_or_later() -> None:
+def test_gate_blocks_when_phase_is_overreaction_or_later() -> None:
+    """CORE profile blocks phase 4/5; phase 3 (retail influx) is now
+    allowed under the activity-friendly tuning."""
     scorer = SignalScoringSystem()
-    for phase in (3, 4, 5):
+    for phase in (4, 5):
         b = scorer.score(
             **_kw(timing=TimingDecision(phase=phase, score=0, label="", reason=""))
         )
         assert b.passes_trade is False, f"phase {phase} should not trade"
+
+
+def test_gate_allows_phase_3_in_core_profile() -> None:
+    """Phase 3 (retail influx, 2..5 min) trades in the CORE profile —
+    sized down via the BAND_LOW tier when edge/z are borderline."""
+    scorer = SignalScoringSystem()
+    b = scorer.score(
+        **_kw(timing=TimingDecision(phase=3, score=6, label="retail", reason=""))
+    )
+    assert b.passes_trade is True
+    assert b.gate_reason == "ok"
 
 
 def test_gate_blocks_stale_news() -> None:

@@ -21,6 +21,7 @@ connect args.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any, Optional
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -30,8 +31,48 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.pool import NullPool
 
 from app.config.settings import settings
+
+
+def _patch_asyncpg_dialect_for_pgbouncer() -> None:
+    """Force the asyncpg dialect to mint unique PREPARE names.
+
+    SQLAlchemy 2.x auto-generates names like ``__asyncpg_stmt_<N>__``
+    where ``N`` is a per-dialect counter.  Behind a transaction-mode
+    pgbouncer the underlying Postgres backend rotates between client
+    transactions, and a recycled backend can already have a plan with
+    the same name from another logical session, raising
+    ``DuplicatePreparedStatementError``.
+
+    Setting the dialect's ``_prepared_statement_name_func`` to a
+    UUID-based factory eliminates the collision deterministically.  We
+    apply the patch once, idempotently, before any engine is created.
+    """
+    try:
+        from sqlalchemy.dialects.postgresql import asyncpg as _pg
+    except ImportError:  # pragma: no cover - dialect always available
+        return
+
+    cls = getattr(_pg, "PGDialect_asyncpg", None)
+    if cls is None or getattr(cls, "_prym_pgbouncer_patched", False):
+        return
+
+    original_init = cls.__init__
+
+    def patched_init(self: Any, *args: Any, **kwargs: Any) -> None:
+        original_init(self, *args, **kwargs)
+        self._prepared_statement_name_func = (
+            lambda: f"__pg_{uuid.uuid4().hex}__"
+        )
+        self._prepared_statement_cache_size = 0
+
+    cls.__init__ = patched_init  # type: ignore[method-assign]
+    cls._prym_pgbouncer_patched = True  # type: ignore[attr-defined]
+
+
+_patch_asyncpg_dialect_for_pgbouncer()
 
 
 _engine: Optional[AsyncEngine] = None
@@ -79,15 +120,40 @@ def _prepare_dsn(raw: str) -> tuple[str, dict[str, Any], bool]:
 def get_engine() -> AsyncEngine:
     global _engine
     if _engine is None:
-        dsn, connect_args, _is_pooler = _prepare_dsn(settings.database_url)
-        _engine = create_async_engine(
-            dsn,
-            pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=5,
-            future=True,
-            connect_args=connect_args,
-        )
+        dsn, connect_args, is_pooler = _prepare_dsn(settings.database_url)
+        if is_pooler:
+            # Transaction-mode pgbouncer rotates the underlying backend
+            # connection between transactions, which the asyncpg dialect
+            # cannot tolerate (it issues stable ``PREPARE`` names that
+            # eventually collide on a recycled backend).  Our remediation
+            # is two-pronged:
+            #
+            # 1. ``NullPool`` -- delegate connection multiplexing to
+            #    pgbouncer instead of holding a client-side pool that
+            #    assumes connection identity.
+            # 2. ``statement_cache_size=0`` on asyncpg -- disable its
+            #    own prepared-statement cache as a defence in depth.
+            #
+            # If you still see ``DuplicatePreparedStatementError`` you
+            # are on TRANSACTION-mode pgbouncer (port 6543); switch the
+            # DSN to the SESSION-mode pooler (same host, port 5432) or
+            # the direct ``db.<ref>.supabase.co:5432`` endpoint, which
+            # both support prepared statements properly.
+            _engine = create_async_engine(
+                dsn,
+                poolclass=NullPool,
+                future=True,
+                connect_args=connect_args,
+            )
+        else:
+            _engine = create_async_engine(
+                dsn,
+                pool_pre_ping=True,
+                pool_size=5,
+                max_overflow=5,
+                future=True,
+                connect_args=connect_args,
+            )
     return _engine
 
 

@@ -131,7 +131,10 @@ def test_stale_news_blocks_trade() -> None:
 
 def test_low_fill_blocks_trade() -> None:
     scorer = SignalScoringSystem()
-    b = scorer.score(**_strong_kwargs(fill_ratio=0.5))
+    # Pick a fill ratio strictly below MIN_FILL_RATIO so the gate fires
+    # regardless of how the deployer tunes the floor in .env.
+    too_low = max(0.0, settings.min_fill_ratio - 0.1)
+    b = scorer.score(**_strong_kwargs(fill_ratio=too_low))
     assert b.passes_trade is False
     assert "fill_below_min" in b.gate_reason
 

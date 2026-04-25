@@ -78,10 +78,15 @@ def test_render_scanner_populated_shows_counts_and_conviction() -> None:
 
 def test_render_scanner_markers_passing_vs_watchlist() -> None:
     """Rows that clear ``CLUSTER_MIN_WALLETS`` render with a filled
-    bullet; watchlist rows (below threshold) use a hollow bullet."""
+    bullet; watchlist rows (below threshold) use a hollow bullet.
+
+    ``weak`` deliberately uses 1 wallet so it stays below the floor
+    even when the deployer tightens ``CLUSTER_MIN_WALLETS`` down to 2
+    in .env (activity-friendly tuning).
+    """
     rows = [
         _row(mid="strong", wallets=10),
-        _row(mid="weak", wallets=2),
+        _row(mid="weak", wallets=1),
     ]
     body = render_scanner(rows)
     assert body.count("▸") >= 1

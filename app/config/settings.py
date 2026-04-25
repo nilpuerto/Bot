@@ -412,6 +412,13 @@ class Settings(BaseSettings):
 
     # ---- Wallet-cluster scanner (smart-money follow) --------------------
     cluster_enabled: bool = Field(default=True, alias="CLUSTER_ENABLED")
+    # Vigilancia mode — when True, the cluster scanner ONLY emits
+    # Telegram notifications when tracked wallets converge on a market.
+    # No edge gates are run, no trade is executed.  News-driven signals
+    # remain the only auto-trade path.  Default True so production
+    # deployments are conservative; flip to False to re-enable the full
+    # cluster→trade pipeline (legacy behaviour).
+    cluster_watch_only: bool = Field(default=True, alias="CLUSTER_WATCH_ONLY")
     cluster_min_wallets: int = Field(default=3, alias="CLUSTER_MIN_WALLETS")
     cluster_window_hours: int = Field(default=2, alias="CLUSTER_WINDOW_HOURS")
     cluster_min_conviction_usd: float = Field(

@@ -66,6 +66,7 @@ from app.services.trader_analysis import TraderAnalysisService, TraderConfirmati
 from app.services.wallet_cluster import ClusterCandidate, WalletClusterScanner
 from app.strategies.prym_strategy import PrymStrategy
 from app.telegram.bot import broadcast_signal, build_application, notify_trade_closed
+from app.telegram.formatters import escape_md
 from app.utils.logger import configure_logging, get_logger
 from app.utils.text import stable_hash
 from app.utils.time import seconds_since, utcnow
@@ -388,7 +389,7 @@ class Orchestrator:
                 min_z=settings.z_min_for_trade,
             )
             return
-        if timing.phase not in (1, 2):
+        if timing.phase not in (1, 2, 3):
             logger.debug(
                 "news_dropped_late_phase",
                 market_id=market.id,
@@ -643,26 +644,95 @@ class Orchestrator:
 
     # ---- wallet-cluster (smart-money follow) pipeline ------------------
 
+    async def _notify_cluster_vigilancia(self, cand: ClusterCandidate) -> None:
+        """Vigilancia notification — the tracked wallets converged on a
+        market.  Sends a Telegram alert to admins (and to all users with
+        notifications enabled) so they can review the setup manually.
+
+        No edge gates, no trade execution.  This is the *background*
+        smart-money signal — news remains the only auto-trader.
+        """
+        if self._app is None:
+            return
+
+        market = cand.market
+        side = cand.side
+        question = (market.question or "—")[:80]
+        wallets_str = ", ".join(f"`{w[:6]}…{w[-4:]}`" for w in cand.wallets[:3])
+        if len(cand.wallets) > 3:
+            wallets_str += f" \\+{len(cand.wallets) - 3}"
+
+        text = (
+            "👁 *VIGILANCIA — wallet cluster*\n\n"
+            f"▸ {escape_md(question)}\n"
+            f"▸ side `{side.upper()}`  •  wallets `{cand.wallet_count}`\n"
+            f"▸ conviction `{escape_md(f'${cand.total_conviction_usd:,.0f}')}`\n"
+            f"▸ {wallets_str}\n"
+            "\n_Manual review only — no auto-trade._"
+        )
+
+        try:
+            from sqlalchemy import select
+
+            from app.database.models import User as UserModel
+
+            async with session_scope() as session:
+                res = await session.execute(
+                    select(UserModel).where(UserModel.notifications_enabled.is_(True))
+                )
+                users = res.scalars().all()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("vigilancia_users_query_failed", error=str(exc))
+            users = []
+
+        chat_ids: set[int] = {u.telegram_id for u in users if u.telegram_id}
+        chat_ids.update(int(a) for a in settings.admin_telegram_ids if a)
+
+        sent = 0
+        for chat_id in chat_ids:
+            try:
+                await self._app.bot.send_message(chat_id=chat_id, text=text)
+                sent += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "vigilancia_send_failed",
+                    chat_id=chat_id,
+                    error=str(exc),
+                )
+
+        logger.info(
+            "vigilancia_cluster_notified",
+            market_id=market.id,
+            side=side,
+            wallets=cand.wallet_count,
+            conviction_usd=cand.total_conviction_usd,
+            recipients=sent,
+        )
+
     async def _handle_cluster(self, cand: ClusterCandidate) -> None:
-        """Whitelisted wallet cluster trigger — an independent entry
-        point into the same edge-first pipeline as news events.
+        """Whitelisted wallet cluster trigger.
 
-        The cluster event itself substitutes for the news catalyst:
+        Two operating modes, controlled by ``settings.cluster_watch_only``:
 
-        * direction comes from the observed side.
-        * ``news_published_at`` = ``cand.last_observed_at`` so the
-          freshness gate applies normally.
-        * phase is forced to 2 (breaking-reaction equivalent) because
-          the wallets have just entered — we are trying to front-run
-          the retail echo, not lag it.
+        * **Vigilancia mode** (``cluster_watch_only=True``, default) —
+          the scanner observes the tracked wallets in the background
+          and only emits a Telegram notification when they converge on
+          a market.  No edge gates, no trade execution.  News is the
+          only auto-trader.
 
-        Everything else (mispricing z, microstructure, execution cost,
-        score hard-gates) runs exactly like news-driven signals — a
-        dead book or insufficient edge still kills the trade.
+        * **Auto-trade mode** (``cluster_watch_only=False``, legacy) —
+          the cluster event substitutes for a news catalyst and runs
+          through the full edge-first pipeline (mispricing z,
+          microstructure, execution cost, score hard-gates) before
+          opening a trade.
         """
         if not settings.cluster_enabled:
             return
         assert self._poly is not None
+
+        if settings.cluster_watch_only:
+            await self._notify_cluster_vigilancia(cand)
+            return
 
         market = cand.market
         side = cand.side

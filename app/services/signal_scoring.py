@@ -215,7 +215,11 @@ class SignalScoringSystem:
             if is_low_prob
             else settings.min_edge_pct
         )
-        allowed_phases = (1,) if is_low_prob else (1, 2)
+        # CORE profile now allows phase 3 (retail influx) — we still
+        # prefer phases 1-2 via the sizing tier driver, but blocking
+        # phase 3 entirely was killing too many borderline signals.
+        # LOW-PROB stays strict at phase 1 only (initial repricing).
+        allowed_phases = (1,) if is_low_prob else (1, 2, 3)
 
         direction_ok = impact != "neutral"
         freshness_ok = (
@@ -260,14 +264,16 @@ class SignalScoringSystem:
         # signals that would never clear the cost model.
         passes_alert = hard_gate
         passes_trade = hard_gate
-        # High confidence = mispricing pillar firing ≥ 80 % AND strong
+        # High confidence = mispricing pillar firing well AND strong
         # edge/z.  Used only by the sizing tier driver as a hint — the
         # real sizing tier is derived from measured ``net_edge_pct`` +
-        # ``|z|`` via ``tier_from_edge``.
+        # ``|z|`` via ``tier_from_edge``.  Aligned with the new HIGH
+        # tier in ``tier_from_edge`` (edge ≥ 8 AND |z| ≥ 2.5) so the
+        # two definitions don't drift apart.
         high_confidence = (
-            misp >= CAP_MISPRICING * 0.8
-            and abs_z >= 3.0
-            and (net_edge_pct or 0.0) >= 15.0
+            misp >= CAP_MISPRICING * 0.6
+            and abs_z >= 2.5
+            and (net_edge_pct or 0.0) >= 8.0
         )
 
         # ---- Gate reason (for logging) -----------------------------------

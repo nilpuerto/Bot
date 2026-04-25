@@ -6,14 +6,13 @@ Final spec (edge-first, balance-adaptive):
   band commits a *percentage of the user's balance*.  The USD amount
   therefore scales with the account size:
 
-  =========================  =================  ===================  ============
-  Tier driver                Band name          % of balance (def.)  With 50€
-  =========================  =================  ===================  ============
-  net_edge ∈ [MIN_EDGE, 10)  ``low``            3 %                  1.50 €
-  net_edge ∈ [10, 15) OR
-      |z| ≥ 3                ``mid``            5 %                  2.50 €
-  net_edge ≥ 15 AND |z| ≥ 3  ``high``           10 %                 5.00 €
-  =========================  =================  ===================  ============
+  ==========================  =================  ===================  ============
+  Tier driver                 Band name          % of balance (def.)  With 50€
+  ==========================  =================  ===================  ============
+  net_edge ∈ [MIN_EDGE, 4)    ``low``            1.5 %                0.75 €
+  net_edge ≥ 4 OR |z| ≥ 2     ``mid``            3 %                  1.50 €
+  net_edge ≥ 8 AND |z| ≥ 2.5  ``high``           5 %                  2.50 €
+  ==========================  =================  ===================  ============
 
   The old legacy driver (the 0..100 score: 0-49 → low, 50-74 → mid,
   75-100 → high) is retained as a back-compat fallback for call sites
@@ -89,11 +88,12 @@ def tier_from_edge(
     * ``low_prob`` — ``entry_price ≤ LOW_PROB_ENTRY_PRICE``.  Tiny size
       regardless of edge/z; asymmetric upside is preserved by the exit
       ladder, not by stake size.
-    * ``high``  — ``net_edge_pct ≥ 15`` AND ``|z| ≥ 3``.
-    * ``mid``   — ``net_edge_pct ∈ [10, 15)`` OR ``|z| ≥ 3``.
-    * ``low``   — otherwise (still bounded by the hard ``min_edge_pct``
-      gate in ``passes_trade``; a ``low`` tier means the signal barely
-      clears the cost model).
+    * ``high``  — ``net_edge_pct ≥ 8`` AND ``|z| ≥ 2.5``  (perfect
+      setup: deep mispricing and strong post-cost EV → full BAND_HIGH).
+    * ``mid``   — ``net_edge_pct ≥ 4`` OR ``|z| ≥ 2.0``  (decent setup
+      → BAND_MID).
+    * ``low``   — otherwise (signal barely clears the floor, sized small
+      via BAND_LOW; "if not perfect, less money").
     """
     if (
         entry_price is not None
@@ -103,9 +103,9 @@ def tier_from_edge(
         return "low_prob"
     edge = float(net_edge_pct) if net_edge_pct is not None else 0.0
     z = float(abs_z) if abs_z is not None else 0.0
-    if edge >= 15.0 and z >= 3.0:
+    if edge >= 8.0 and z >= 2.5:
         return "high"
-    if edge >= 10.0 or z >= 3.0:
+    if edge >= 4.0 or z >= 2.0:
         return "mid"
     return "low"
 
