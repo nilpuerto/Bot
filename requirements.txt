@@ -1,0 +1,30 @@
+# --- Core runtime ---
+python-telegram-bot==21.6
+httpx==0.27.2
+feedparser==6.0.11
+pydantic==2.9.2
+pydantic-settings==2.5.2
+python-dotenv==1.0.1
+tenacity==9.0.0
+structlog==24.4.0
+orjson==3.10.7
+python-dateutil==2.9.0.post0
+
+# --- Database ---
+SQLAlchemy==2.0.36
+asyncpg==0.30.0
+# SQLAlchemy async needs greenlet at runtime; on Python 3.13 it's no
+# longer pulled in automatically via the ``asyncio`` extra.
+greenlet==3.1.1
+
+# --- Polymarket / Polygon ---
+# py-clob-client 0.17.5 pulled in eth-account>=0.13 which in turn needs
+# web3>=7.  Bumped the trio so pip can resolve without conflicts.
+py-clob-client==0.17.5
+web3==7.4.0
+eth-account==0.13.4
+
+# --- Testing ---
+pytest==8.3.3
+pytest-asyncio==0.24.0
+respx==0.21.1

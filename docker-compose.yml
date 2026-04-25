@@ -1,0 +1,14 @@
+services:
+  prym-bot:
+    build: .
+    image: prym-bot:latest
+    container_name: prym-bot
+    restart: unless-stopped
+    env_file: .env
+    # No inbound ports needed — the bot only makes outbound calls to
+    # Supabase, Mistral, Polymarket, Telegram.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

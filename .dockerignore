@@ -1,0 +1,35 @@
+# Files & directories that must never land in the Docker image.
+# Keeps the image small and avoids leaking secrets.
+
+# --- Secrets ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- VCS / IDE ---
+.git/
+.gitignore
+.idea/
+.vscode/
+
+# --- Local artefacts ---
+*.log
+*.sqlite
+*.sqlite3
+logs/
+tapes/
+terminals/
+
+# --- Docs the image doesn't need ---
+README.md
+SETUP.md
+MISSING.md
