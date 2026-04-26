@@ -21,9 +21,16 @@ def test_strong_setup_is_core() -> None:
 
 
 def test_moderate_setup_is_mid() -> None:
-    """Decent setup but edge is thin → EV above opp_min, below core → mid."""
+    """Thin net_edge + moderate z → EV above opp_min but below core → mid.
+
+    With the recalibrated boosters (z_boost=0.15/unit, BASE_P=0.55) a signal
+    with net_edge_pct=0.8% stays in mid because EV is clearly positive but
+    too small to reach EV_CORE_MIN.  This tests that the mid tier is reachable
+    without hitting the hard-gate floor (min_edge_pct=2% applies at the
+    orchestrator level, not inside the EV estimator itself).
+    """
     r = compute_ev(
-        net_edge_pct=3.0,
+        net_edge_pct=0.8,   # thin — just enough for positive EV at high p
         abs_z=1.5,
         context_score=0.6,
         entry_price=0.30,
@@ -55,20 +62,21 @@ def test_negative_edge_is_reject() -> None:
     assert r.tier == "reject"
 
 
-def test_exploratory_low_price_high_payout() -> None:
-    """Entry at a low-prob price with thin but positive EV → exploratory (low tier).
+def test_exploratory_low_price_thin_ev_is_low_tier() -> None:
+    """Very thin edge on a low-prob entry → EV barely positive → exploratory low tier.
 
-    To be EV-positive with a thin edge, p_edge_real must be high enough to
-    overcome the loss estimate.  We use a strong z+context to achieve that
-    while keeping net_edge_pct low so EV stays below EV_OPP_MIN.
+    With the recalibrated EV_OPP_MIN=0.05, an exploratory signal only lands
+    in the "low" tier when EV is between 0 and 0.05.  That requires a
+    combination of a wafer-thin net_edge (~1.3%) with near-zero z+context
+    boost so P_edge_real stays close to BASE_P=0.55.
 
-    EV = 0.80 × 0.7 - 0.20 × 2.0 = 0.56 - 0.40 = 0.16 → between 0 and EV_OPP_MIN.
+    EV ≈ 0.55×1.27 − 0.45×1.5 ≈ 0.023  (between 0 and EV_OPP_MIN=0.05).
     """
     low_price = float(settings.low_prob_entry_price) - 0.01
     r = compute_ev(
-        net_edge_pct=0.7,       # thin edge — just enough for EV > 0 at high p
-        abs_z=2.5,              # z_boost hits cap → 0.20
-        context_score=1.0,      # ctx_boost = 0.10 → p_edge_real = 0.80
+        net_edge_pct=1.27,  # thin enough for EV in (0, EV_OPP_MIN)
+        abs_z=0.0,          # no z boost → p stays near BASE_P
+        context_score=0.0,  # no context boost
         entry_price=low_price,
     )
     assert r.payout_ratio >= float(settings.ev_exploratory_payout_min)
@@ -76,6 +84,26 @@ def test_exploratory_low_price_high_payout() -> None:
     assert r.ev < float(settings.ev_opp_min)
     assert r.is_exploratory is True
     assert r.tier == "low"
+
+
+def test_exploratory_with_decent_ev_goes_to_mid() -> None:
+    """Low-prob entry + decent EV → mid tier, not exploratory-low.
+
+    When EV > EV_OPP_MIN the signal gets standard mid sizing (not tiny
+    exploratory size), even though entry_price is in the low-prob range.
+    This is correct: if the EV is genuinely positive, don't penalise it
+    with a lottery-ticket stake.
+    """
+    low_price = float(settings.low_prob_entry_price) - 0.01
+    r = compute_ev(
+        net_edge_pct=0.7,
+        abs_z=2.5,
+        context_score=1.0,
+        entry_price=low_price,
+    )
+    assert r.is_exploratory is True
+    assert r.ev > float(settings.ev_opp_min)
+    assert r.tier == "mid"
 
 
 def test_exploratory_with_strong_ev_becomes_core() -> None:
