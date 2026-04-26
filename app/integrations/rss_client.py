@@ -46,9 +46,18 @@ class RSSClient:
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> "RSSClient":
+        # ``follow_redirects=True`` is essential — many big outlets
+        # (CoinDesk, MarketWatch, The Hill, etc.) serve their RSS
+        # behind permanent 301/308 redirects.  Without this flag every
+        # such feed gets dropped with a noisy ``rss_bad_status`` log
+        # line and zero items reach the pipeline.
         self._client = httpx.AsyncClient(
             timeout=self._timeout,
-            headers={"User-Agent": self.USER_AGENT, "Accept": "application/rss+xml,application/atom+xml,application/xml;q=0.9,*/*;q=0.5"},
+            follow_redirects=True,
+            headers={
+                "User-Agent": self.USER_AGENT,
+                "Accept": "application/rss+xml,application/atom+xml,application/xml;q=0.9,*/*;q=0.5",
+            },
         )
         return self
 

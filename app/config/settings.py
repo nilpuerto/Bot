@@ -132,26 +132,50 @@ class Settings(BaseSettings):
     # is just a sane out-of-the-box configuration.
     rss_feeds_raw: str = Field(
         default=(
-            # Politics / world news
+            # ---- Politics / world (always-on, breaking) ------------------
             "https://feeds.bbci.co.uk/news/rss.xml,"
             "https://feeds.bbci.co.uk/news/world/rss.xml,"
+            "https://feeds.bbci.co.uk/news/politics/rss.xml,"
             "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml,"
+            "https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml,"
             "https://www.theguardian.com/world/rss,"
+            "https://www.theguardian.com/us-news/rss,"
             "https://feeds.npr.org/1001/rss.xml,"
             "https://www.aljazeera.com/xml/rss/all.xml,"
-            "https://feeds.apnews.com/apf-topnews,"
-            "https://www.politico.com/rss/politicopicks.xml,"
-            "https://thehill.com/rss/syndicator/19110,"
-            # Finance / macro
+            "https://thehill.com/feed/,"
+            # ---- Finance / macro -----------------------------------------
             "https://feeds.bbci.co.uk/news/business/rss.xml,"
+            "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml,"
+            "https://www.theguardian.com/uk/business/rss,"
             "https://feeds.marketwatch.com/marketwatch/topstories/,"
-            # Crypto
-            "https://www.coindesk.com/arc/outboundfeeds/rss/,"
+            "https://feeds.marketwatch.com/marketwatch/marketpulse/,"
+            "https://www.cnbc.com/id/100003114/device/rss/rss.html,"
+            "https://www.cnbc.com/id/10000664/device/rss/rss.html,"
+            "https://feeds.a.dj.com/rss/RSSWorldNews.xml,"
+            "https://finance.yahoo.com/news/rssindex,"
+            # ---- Crypto --------------------------------------------------
+            "https://www.coindesk.com/arc/outboundfeeds/rss/?outputType=xml,"
             "https://cointelegraph.com/rss,"
             "https://www.theblock.co/rss.xml,"
-            # Sports
+            "https://decrypt.co/feed,"
+            "https://bitcoinmagazine.com/.rss/full/,"
+            # ---- Sports --------------------------------------------------
             "https://feeds.bbci.co.uk/sport/rss.xml,"
-            "https://www.espn.com/espn/rss/news"
+            "https://feeds.bbci.co.uk/sport/football/rss.xml,"
+            "https://www.espn.com/espn/rss/news,"
+            "https://www.espn.com/espn/rss/soccer/news,"
+            "https://sports.yahoo.com/rss/,"
+            # ---- Twitter-/X-like — Truth Social (Trump) + Google News ---
+            # Truth Social publishes a public Atom feed for any user.
+            # Google News RSS is the most reliable free way to surface
+            # what Elon Musk / Trump / the Fed / the BTC ETF crowd are
+            # saying — it aggregates verified outlets in near-real-time.
+            "https://truthsocial.com/users/realDonaldTrump/feed.atom,"
+            "https://news.google.com/rss/search?q=Elon+Musk&hl=en-US&gl=US&ceid=US:en,"
+            "https://news.google.com/rss/search?q=Donald+Trump&hl=en-US&gl=US&ceid=US:en,"
+            "https://news.google.com/rss/search?q=Federal+Reserve&hl=en-US&gl=US&ceid=US:en,"
+            "https://news.google.com/rss/search?q=Bitcoin+ETF&hl=en-US&gl=US&ceid=US:en,"
+            "https://news.google.com/rss/search?q=ceasefire+OR+sanctions+OR+war&hl=en-US&gl=US&ceid=US:en"
         ),
         alias="RSS_FEEDS",
     )

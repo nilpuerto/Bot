@@ -237,7 +237,7 @@ following keys in the Render dashboard if you want the new behaviour:
 
 | Variable                     | New recommended value | Why                                       |
 | ---------------------------- | --------------------- | ----------------------------------------- |
-| `RSS_FEEDS`                  | (see `.env.example`)  | Adds crypto + sports + finance feeds      |
+| `RSS_FEEDS`                  | (see `.env.example`)  | Curated mix + Truth Social + Google News  |
 | `HARD_FILTER_KEYWORDS`       | (see `.env.example`)  | Wider pre-AI net (sports, crypto, weather)|
 | `DQ_MIN_SCORE`               | `55`                  | Lets Tier-2 outlets through               |
 | `MAX_NEWS_AGE_FOR_TRADE`     | `600`                 | 10 min freshness window                   |
@@ -304,6 +304,31 @@ You'll see this in the logs as
 `pending_news_enqueued` → `market_universe_new_listings` →
 `pending_resolved` → `trade_opened_…`, exactly the "no rendirse" path
 described above.
+
+### News sources — beyond classic RSS
+
+The default `RSS_FEEDS` list is curated for *speed* and *Polymarket
+relevance*, not coverage:
+
+* **Tier-1 wires** — BBC (news / world / politics / business / sport
+  / football), NYT (homepage / politics / business), Guardian
+  (world / US / business), NPR, Al Jazeera, The Hill.
+* **Finance / macro** — MarketWatch (top stories + market pulse),
+  CNBC (top + markets), WSJ World, Yahoo Finance.
+* **Crypto** — CoinDesk, Cointelegraph, The Block, Decrypt, Bitcoin
+  Magazine.
+* **Sports** — BBC Sport / Football, ESPN (news + soccer), Yahoo
+  Sports.
+* **Twitter-/X-like (no API key required)** — Truth Social Atom feed
+  for Donald Trump (direct posts) and Google News RSS searches for
+  *Elon Musk*, *Donald Trump*, *Federal Reserve*, *Bitcoin ETF* and
+  *ceasefire/sanctions/war*.  Google News aggregates verified
+  outlets in near-real-time, so it surfaces what big accounts are
+  saying without the (paid) Twitter API.
+
+The RSS client now follows HTTP 301/308 redirects automatically —
+CoinDesk, MarketWatch, The Hill and similar feeds that used to log
+`rss_bad_status` now resolve cleanly.
 
 ## License
 
