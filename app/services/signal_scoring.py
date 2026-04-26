@@ -53,7 +53,7 @@ model.  Simpler pipeline, stronger signals.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Optional
+from typing import Literal, Mapping, Optional
 
 from app.config.settings import settings
 from app.integrations.mistral_client import AIAnalysis
@@ -95,6 +95,14 @@ class ScoreBreakdown:
 
     # Why the hard-gate cluster passed/failed.  Populated for observability.
     gate_reason: str = ""
+    # Continuous score + tier bucket.
+    edge_score: float = 0.0
+    tier: Literal["core", "mid", "low", "reject"] = "reject"
+    # Additional observability fields for the continuous model.
+    context: float = 0.0
+    confidence: float = 0.0
+    cost_penalty: float = 0.0
+    noise_penalty: float = 0.0
 
     # Raw normalised contributions — persisted for the feedback loop.
     feature_vector: dict = field(default_factory=dict)
@@ -185,6 +193,8 @@ class SignalScoringSystem:
         net_edge_pct: Optional[float] = None,
         fill_ratio: Optional[float] = None,
         entry_price: Optional[float] = None,
+        context_score: Optional[float] = None,
+        ai_confidence: Optional[float] = None,
     ) -> ScoreBreakdown:
         # ---- Hard-gate inputs (measurable) --------------------------------
         impact = getattr(ai, "impact", "neutral") or "neutral"
@@ -221,7 +231,7 @@ class SignalScoringSystem:
         # LOW-PROB stays strict at phase 1 only (initial repricing).
         allowed_phases = (1,) if is_low_prob else (1, 2, 3)
 
-        direction_ok = impact != "neutral"
+        direction_ok = True
         freshness_ok = (
             news_age_s is not None and news_age_s <= settings.max_news_age_for_trade
         )
@@ -252,18 +262,51 @@ class SignalScoringSystem:
         total = round(news + liquidity + misp + timing_pts, 2)
 
         # ---- Gate aggregation --------------------------------------------
-        hard_gate = (
-            direction_ok
-            and freshness_ok
-            and phase_ok
-            and z_ok
-            and edge_ok
-            and fill_ok
+        hard_gate = freshness_ok and phase_ok and z_ok and edge_ok and fill_ok
+        # ---- Continuous EDGE_SCORE + tiering ------------------------------
+        timing_mult = {1: 1.30, 2: 1.10, 3: 0.80, 4: 0.50}.get(phase, 0.20)
+        raw_context = context_score if context_score is not None else None
+        context_mult = max(0.0, min(1.0, float(raw_context or 0.0)))
+        if raw_context is None and context_mult == 0.0:
+            # Fallback when matcher context wasn't propagated by caller.
+            context_mult = 1.0 if direction_ok and z_ok else 0.5
+        confidence_mult = max(
+            0.5,
+            min(
+                1.0,
+                0.5 + (float(ai_confidence if ai_confidence is not None else 60.0) / 200.0),
+            ),
         )
+        event_edge = max(0.0, min(1.0, (0.55 * misp_raw) + (0.45 * liq_raw)))
+        noise_penalty = (
+            float(settings.neutral_noise_penalty)
+            if impact == "neutral"
+            else 0.0
+        )
+        edge_gap = max(0.0, float(settings.min_edge_pct) - float(net_edge_pct or 0.0))
+        cost_penalty = (
+            (edge_gap / max(1.0, float(settings.min_edge_pct)))
+            * 0.35
+            * float(settings.edge_score_cost_penalty_mult)
+        )
+        edge_score = (
+            (event_edge * timing_mult * context_mult * confidence_mult)
+            - cost_penalty
+            - noise_penalty
+        )
+        edge_score = round(float(edge_score), 4)
+        if edge_score >= float(settings.edge_score_core_min):
+            tier: Literal["core", "mid", "low", "reject"] = "core"
+        elif edge_score >= float(settings.edge_score_mid_min):
+            tier = "mid"
+        elif edge_score >= float(settings.edge_score_low_min):
+            tier = "low"
+        else:
+            tier = "reject"
         # Alerts and trades share the same gate — we do not surface
         # signals that would never clear the cost model.
-        passes_alert = hard_gate
-        passes_trade = hard_gate
+        passes_alert = hard_gate and tier != "reject"
+        passes_trade = hard_gate and tier != "reject"
         # High confidence = mispricing pillar firing well AND strong
         # edge/z.  Used only by the sizing tier driver as a hint — the
         # real sizing tier is derived from measured ``net_edge_pct`` +
@@ -279,8 +322,6 @@ class SignalScoringSystem:
         # ---- Gate reason (for logging) -----------------------------------
         if hard_gate:
             gate_reason = "ok"
-        elif not direction_ok:
-            gate_reason = "neutral_impact"
         elif not freshness_ok:
             gate_reason = f"stale_news_age_{news_age_s}"
         elif not phase_ok:
@@ -321,6 +362,13 @@ class SignalScoringSystem:
             "eff_z_min": float(eff_z_min),
             "eff_edge_min": float(eff_edge_min),
             "weights": {k: float(v) for k, v in self.weights.items()},
+            "context_score": round(context_mult, 4),
+            "confidence_mult": round(confidence_mult, 4),
+            "event_edge": round(event_edge, 4),
+            "edge_score": edge_score,
+            "tier": tier,
+            "cost_penalty": round(cost_penalty, 4),
+            "noise_penalty": round(noise_penalty, 4),
         }
 
         return ScoreBreakdown(
@@ -338,6 +386,12 @@ class SignalScoringSystem:
             liquidity_spread=micro.spread if micro else None,
             liquidity_ofi=micro.ofi if micro else None,
             gate_reason=gate_reason,
+            edge_score=edge_score,
+            tier=tier,
+            context=round(context_mult, 4),
+            confidence=round(confidence_mult, 4),
+            cost_penalty=round(cost_penalty, 4),
+            noise_penalty=round(noise_penalty, 4),
             feature_vector=feature_vector,
         )
 

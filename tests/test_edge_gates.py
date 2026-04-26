@@ -143,11 +143,17 @@ def test_gate_blocks_low_fill() -> None:
     assert "fill_below_min" in b.gate_reason
 
 
-def test_gate_blocks_neutral_direction() -> None:
+def test_gate_penalizes_neutral_direction() -> None:
+    """Neutral impact is no longer a hard veto — it applies a noise_penalty
+    that suppresses weak setups to 'reject' tier while still allowing
+    strong measurable signals (high z, high edge) through."""
     scorer = SignalScoringSystem()
     b = scorer.score(**_kw(ai=AIAnalysis(market="X", impact="neutral", urgency=5)))
-    assert b.passes_trade is False
-    assert b.gate_reason == "neutral_impact"
+    assert b.noise_penalty > 0.0
+    # A well-structured neutral signal (from _kw defaults) may still pass
+    # via the continuous scorer; the penalty should reduce its edge_score.
+    b_bull = scorer.score(**_kw())
+    assert b.edge_score < b_bull.edge_score
 
 
 def test_gate_passes_when_every_measurable_condition_is_satisfied() -> None:

@@ -243,6 +243,27 @@ async def test_find_match_rejects_crypto_news_against_sports_market() -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_match_cluster_scope_prefers_macro_bucket() -> None:
+    poly: Any = _FakePoly(
+        [
+            _m("cease", "Will Iran-US ceasefire hold through June?", volume=70_000),
+            _m("f1", "Will Verstappen win the next F1 race?", volume=90_000),
+        ]
+    )
+    svc = MarketUniverseService(poly, size=10, refresh_seconds=60)
+    await svc.refresh()
+
+    hit = svc.find_match(
+        ai_market_hint="Iran ceasefire extended",
+        news_title="US and Iran extend ceasefire talks after weekend summit",
+        entities=["Iran", "US", "ceasefire"],
+        category="geopolitical",
+    )
+    assert hit is not None
+    assert hit.market.id == "cease"
+
+
+@pytest.mark.asyncio
 async def test_find_match_no_entity_news_requires_strong_jaccard() -> None:
     """When the AI couldn't extract entities, fall back to a Jaccard
     floor — generic headlines with weak overlap must NOT match."""

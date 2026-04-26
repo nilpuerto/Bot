@@ -211,6 +211,26 @@ _CATEGORY_COMPAT: dict[str, set[str]] = {
     "other": {"other", "social", "political", "economic", "geopolitical"},
 }
 
+_CATEGORY_TO_CLUSTER: dict[str, str] = {
+    "economic": "macro",
+    "geopolitical": "macro",
+    "political": "macro",
+    "climate": "macro",
+    "sports": "sports",
+    "crypto": "crypto_tech",
+    "social": "crypto_tech",
+    "other": "macro",
+}
+
+_TOPIC_TO_CLUSTER: dict[str, str] = {
+    "economic": "macro",
+    "geopolitical": "macro",
+    "political": "macro",
+    "climate": "macro",
+    "sports": "sports",
+    "crypto": "crypto_tech",
+}
+
 
 def infer_market_topic(market_question: str) -> Optional[str]:
     """Best-effort topic guess for a Polymarket question.
@@ -251,6 +271,26 @@ def categories_compatible(
         # Unknown news category — be permissive.
         return True
     return mt in allowed
+
+
+def infer_news_cluster(news_category: Optional[str]) -> Optional[str]:
+    if not news_category:
+        return None
+    return _CATEGORY_TO_CLUSTER.get(news_category.lower())
+
+
+def infer_market_cluster(market_question: str) -> Optional[str]:
+    topic = infer_market_topic(market_question)
+    if not topic:
+        return None
+    return _TOPIC_TO_CLUSTER.get(topic.lower())
+
+
+def clusters_compatible(news_cluster: Optional[str], market_cluster: Optional[str]) -> bool:
+    # Unknowns stay permissive to avoid false negatives.
+    if not news_cluster or not market_cluster:
+        return True
+    return news_cluster == market_cluster
 
 
 def passes_entity_gate(

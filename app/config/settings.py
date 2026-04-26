@@ -350,6 +350,22 @@ class Settings(BaseSettings):
     low_prob_min_edge_pct: float = Field(
         default=6.0, alias="LOW_PROB_MIN_EDGE_PCT"
     )
+    # ---- Continuous EDGE_SCORE thresholds (tiered execution) ----------
+    # Hard gates remain safety rails. EDGE_SCORE then maps a candidate
+    # to quality tiers instead of binary accept/reject.
+    edge_score_core_min: float = Field(default=0.65, alias="EDGE_SCORE_CORE_MIN")
+    edge_score_mid_min: float = Field(default=0.35, alias="EDGE_SCORE_MID_MIN")
+    edge_score_low_min: float = Field(default=0.15, alias="EDGE_SCORE_LOW_MIN")
+    # Neutral items are penalised (not auto-dropped) so only strong
+    # measurable setups survive.
+    neutral_noise_penalty: float = Field(default=0.30, alias="NEUTRAL_NOISE_PENALTY")
+    edge_score_cost_penalty_mult: float = Field(
+        default=1.0, alias="EDGE_SCORE_COST_PENALTY_MULT"
+    )
+    # Per-tier daily caps to avoid low-tier overtrading.
+    max_core_trades_per_day: int = Field(default=3, alias="MAX_CORE_TRADES_PER_DAY")
+    max_mid_trades_per_day: int = Field(default=3, alias="MAX_MID_TRADES_PER_DAY")
+    max_low_trades_per_day: int = Field(default=2, alias="MAX_LOW_TRADES_PER_DAY")
 
     # ---- Timing / Price sampler -----------------------------------------
     price_sampler_interval_seconds: int = Field(
@@ -425,6 +441,15 @@ class Settings(BaseSettings):
     match_enforce_topic_gate: bool = Field(
         default=True, alias="MATCH_ENFORCE_TOPIC_GATE"
     )
+    # Add a stricter thematic cluster gate (macro/sports/crypto-tech)
+    # on top of coarse topic compatibility.
+    match_enforce_cluster_gate: bool = Field(
+        default=True, alias="MATCH_ENFORCE_CLUSTER_GATE"
+    )
+    # Per-cluster entity bonus used by match rankers.
+    match_entity_bonus_macro: float = Field(default=0.18, alias="MATCH_ENTITY_BONUS_MACRO")
+    match_entity_bonus_sports: float = Field(default=0.14, alias="MATCH_ENTITY_BONUS_SPORTS")
+    match_entity_bonus_crypto: float = Field(default=0.16, alias="MATCH_ENTITY_BONUS_CRYPTO")
 
     # ---- Pending-news retry --------------------------------------------
     # When AI tags a news item as relevant but Polymarket hasn't listed

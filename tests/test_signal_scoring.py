@@ -83,17 +83,25 @@ def _strong_kwargs(**overrides):
 
 def test_all_gates_passing_yields_passes_trade() -> None:
     scorer = SignalScoringSystem()
-    b = scorer.score(**_strong_kwargs())
+    b = scorer.score(**_strong_kwargs(context_score=1.0, ai_confidence=80))
     assert b.passes_alert is True
     assert b.passes_trade is True
     assert b.gate_reason == "ok"
+    assert b.tier in {"core", "mid", "low"}
 
 
-def test_neutral_impact_fails_direction_gate() -> None:
+def test_neutral_impact_is_penalized_not_auto_rejected() -> None:
     scorer = SignalScoringSystem()
-    b = scorer.score(**_strong_kwargs(ai=AIAnalysis(market="X", impact="neutral", urgency=5)))
-    assert b.passes_trade is False
-    assert b.gate_reason == "neutral_impact"
+    b = scorer.score(
+        **_strong_kwargs(
+            ai=AIAnalysis(market="X", impact="neutral", urgency=5),
+            context_score=1.0,
+            ai_confidence=95,
+            net_edge_pct=settings.min_edge_pct + 8.0,
+        )
+    )
+    assert b.noise_penalty == settings.neutral_noise_penalty
+    assert b.gate_reason == "ok"
 
 
 def test_phase_outside_1_or_2_blocks_trade() -> None:
@@ -144,6 +152,14 @@ def test_news_pillar_contributes_zero() -> None:
     scorer = SignalScoringSystem()
     b = scorer.score(**_strong_kwargs())
     assert b.news == 0.0
+
+
+def test_edge_score_rejects_weak_context() -> None:
+    scorer = SignalScoringSystem()
+    b = scorer.score(**_strong_kwargs(context_score=0.0, ai_confidence=50))
+    assert b.edge_score <= settings.edge_score_low_min
+    assert b.tier == "reject"
+    assert b.passes_trade is False
 
 
 def test_weights_only_affect_learnable_pillars() -> None:

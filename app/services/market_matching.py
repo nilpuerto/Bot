@@ -26,7 +26,10 @@ from app.integrations.polymarket_client import MarketSnapshot, PolymarketClient
 from app.services.market_universe import MarketUniverseService
 from app.services.match_gates import (
     categories_compatible,
+    clusters_compatible,
+    infer_market_cluster,
     infer_market_topic,
+    infer_news_cluster,
     normalize_entities,
     passes_entity_gate,
 )
@@ -43,6 +46,7 @@ class MatchResult:
     confidence: float  # 0..1
     entity_hits: int = 0
     via: str = "search"  # 'universe' | 'search'
+    context_score: float = 0.0
 
 
 class MarketMatchingService:
@@ -100,6 +104,7 @@ class MarketMatchingService:
                     confidence=min(1.0, uni_match.score),
                     entity_hits=uni_match.entity_hits,
                     via="universe",
+                    context_score=min(1.0, uni_match.score),
                 )
 
         query = ai_market_hint or news_title
@@ -133,6 +138,8 @@ class MarketMatchingService:
         require_ent = bool(settings.match_require_entity_hit)
         no_ent_jaccard = float(settings.match_no_entity_jaccard_min)
         topic_gate = bool(settings.match_enforce_topic_gate)
+        cluster_gate = bool(settings.match_enforce_cluster_gate)
+        news_cluster = infer_news_cluster(category)
 
         ranked: list[tuple[float, int, MarketSnapshot]] = []
         gated_out = 0
@@ -147,6 +154,11 @@ class MarketMatchingService:
             if topic_gate and category:
                 market_topic = infer_market_topic(market.question)
                 if market_topic and not categories_compatible(category, market_topic):
+                    gated_out += 1
+                    continue
+            if cluster_gate and news_cluster:
+                market_cluster = infer_market_cluster(market.question)
+                if market_cluster and not clusters_compatible(news_cluster, market_cluster):
                     gated_out += 1
                     continue
 
@@ -170,7 +182,14 @@ class MarketMatchingService:
                 gated_out += 1
                 continue
 
-            entity_bonus = min(0.40, 0.15 * entity_hits)
+            cluster_entity_bonus = 0.15
+            if news_cluster == "macro":
+                cluster_entity_bonus = float(settings.match_entity_bonus_macro)
+            elif news_cluster == "sports":
+                cluster_entity_bonus = float(settings.match_entity_bonus_sports)
+            elif news_cluster == "crypto_tech":
+                cluster_entity_bonus = float(settings.match_entity_bonus_crypto)
+            entity_bonus = min(0.40, cluster_entity_bonus * entity_hits)
             volume_bonus = 0.05 if market.volume_24h > 1000 else 0.0
             liquidity_bonus = 0.05 if market.liquidity > 5000 else 0.0
             binary_bonus = 0.02 if len(market.outcomes) == 2 else 0.0
@@ -214,6 +233,7 @@ class MarketMatchingService:
             confidence=min(1.0, best_score),
             entity_hits=best_entity_hits,
             via="search",
+            context_score=min(1.0, best_score),
         )
 
 

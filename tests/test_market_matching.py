@@ -62,3 +62,21 @@ async def test_returns_none_below_threshold() -> None:
         category="geopolitical",
     )
     assert match is None
+
+
+@pytest.mark.asyncio
+async def test_macro_news_not_matched_to_sports_cluster() -> None:
+    poly: Any = _FakePoly(
+        [
+            _m("sports1", "Will Barcelona win La Liga this season?"),
+            _m("sports2", "Will Verstappen win the next F1 GP?"),
+        ]
+    )
+    svc = MarketMatchingService(poly, min_confidence=0.1)
+    match = await svc.find(
+        ai_market_hint="Iran ceasefire talks",
+        news_title="US and Iran extend ceasefire negotiations",
+        entities=["Iran", "US", "ceasefire"],
+        category="geopolitical",
+    )
+    assert match is None

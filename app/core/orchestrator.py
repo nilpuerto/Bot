@@ -408,15 +408,16 @@ class Orchestrator:
         market = match.market
         self._market_cache.set(market.id, market)
 
+        # 3. Mispricing first, then derive side for neutral headlines.
+        # Neutral no longer implies auto-drop in scoring; we anchor side
+        # to mispricing direction in that case.
         side = "yes" if analysis.impact == "bullish" else "no"
-
-        # 3. Microstructure + mispricing + timing (parallel).
         micro_svc = MicrostructureService(self._poly)
-        micro_task = asyncio.create_task(micro_svc.snapshot(market, side=side))
-        mispricing_task = asyncio.create_task(MispricingService().compute(market))
-
-        micro = await micro_task
-        mispricing = await mispricing_task
+        mispricing = await MispricingService().compute(market)
+        if analysis.impact == "neutral":
+            z = mispricing.z if mispricing and mispricing.z is not None else 0.0
+            side = "yes" if z <= 0 else "no"
+        micro = await micro_svc.snapshot(market, side=side)
 
         timing = detect_phase(
             TimingFeatures(
@@ -510,12 +511,16 @@ class Orchestrator:
             net_edge_pct=adjusted_edge,
             fill_ratio=fill_ratio,
             entry_price=entry_price,
+            context_score=match.context_score,
+            ai_confidence=getattr(analysis, "confidence", None),
         )
 
         if not score.passes_trade:
             logger.info(
                 "news_dropped_gate",
                 reason=score.gate_reason,
+                tier=score.tier,
+                edge_score=score.edge_score,
                 abs_z=abs_z,
                 net_edge=cost.net_edge_pct,
                 net_edge_adjusted=adjusted_edge,
@@ -988,6 +993,8 @@ class Orchestrator:
             net_edge_pct=adjusted_edge,
             fill_ratio=fill_ratio,
             entry_price=entry_price,
+            context_score=1.0,
+            ai_confidence=getattr(analysis, "confidence", None),
         )
 
         if not score.passes_trade:
@@ -995,6 +1002,8 @@ class Orchestrator:
                 "cluster_dropped_gate",
                 market_id=market.id,
                 reason=score.gate_reason,
+                tier=score.tier,
+                edge_score=score.edge_score,
                 abs_z=abs_z,
                 net_edge=cost.net_edge_pct,
                 net_edge_adjusted=adjusted_edge,

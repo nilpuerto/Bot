@@ -35,7 +35,10 @@ from app.config.settings import settings
 from app.integrations.polymarket_client import MarketSnapshot, PolymarketClient
 from app.services.match_gates import (
     categories_compatible,
+    clusters_compatible,
+    infer_market_cluster,
     infer_market_topic,
+    infer_news_cluster,
     normalize_entities,
     passes_entity_gate,
 )
@@ -53,6 +56,7 @@ class UniverseMatch:
     market: MarketSnapshot
     score: float
     entity_hits: int
+    cluster: str = "unknown"
 
 
 def _tokens(text: str) -> set[str]:
@@ -129,6 +133,18 @@ class MarketUniverseService:
     def top_questions(self, limit: int = 30) -> list[str]:
         """Top-N market questions, useful for grounding an LLM prompt."""
         return [m.question for m in self._markets[: max(0, int(limit))]]
+
+    def markets_for_cluster(self, cluster: str) -> list[MarketSnapshot]:
+        """Return cached markets restricted to one thematic cluster."""
+        wanted = (cluster or "").strip().lower()
+        if not wanted:
+            return list(self._markets)
+        out: list[MarketSnapshot] = []
+        for m in self._markets:
+            m_cluster = infer_market_cluster(m.question)
+            if m_cluster == wanted:
+                out.append(m)
+        return out
 
     @property
     def last_new_listings(self) -> list[MarketSnapshot]:
@@ -267,13 +283,20 @@ class MarketUniverseService:
             if enforce_topic_gate is not None
             else bool(settings.match_enforce_topic_gate)
         )
+        cluster_gate = bool(settings.match_enforce_cluster_gate)
+        news_cluster = infer_news_cluster(category)
 
         ref_tokens = _tokens(f"{ai_market_hint or ''} {news_title}")
         ent_norms = normalize_entities(entities)
         has_entities = bool(ent_norms)
+        scoped_markets = self._markets
+        if news_cluster:
+            scoped_markets = self.markets_for_cluster(news_cluster)
+            if not scoped_markets:
+                scoped_markets = self._markets
 
         ranked: list[UniverseMatch] = []
-        for market in self._markets:
+        for market in scoped_markets:
             market_norm = normalize(market.question)
             market_tokens = _tokens(market.question)
 
@@ -286,6 +309,10 @@ class MarketUniverseService:
             if topic_gate and category:
                 market_topic = infer_market_topic(market.question)
                 if market_topic and not categories_compatible(category, market_topic):
+                    continue
+            market_cluster = infer_market_cluster(market.question)
+            if cluster_gate and news_cluster:
+                if market_cluster and not clusters_compatible(news_cluster, market_cluster):
                     continue
 
             # Hard gate 2: entity gate.  When the AI gave us entities,
@@ -300,7 +327,14 @@ class MarketUniverseService:
             ):
                 continue
 
-            entity_bonus = min(0.40, 0.15 * entity_hits)
+            cluster_entity_bonus = 0.15
+            if news_cluster == "macro":
+                cluster_entity_bonus = float(settings.match_entity_bonus_macro)
+            elif news_cluster == "sports":
+                cluster_entity_bonus = float(settings.match_entity_bonus_sports)
+            elif news_cluster == "crypto_tech":
+                cluster_entity_bonus = float(settings.match_entity_bonus_crypto)
+            entity_bonus = min(0.40, cluster_entity_bonus * entity_hits)
             volume_bonus = 0.05 if (market.volume_24h or 0) > 1000 else 0.0
             liquidity_bonus = 0.05 if (market.liquidity or 0) > 5000 else 0.0
             binary_bonus = 0.02 if len(market.outcomes) == 2 else 0.0
@@ -319,7 +353,9 @@ class MarketUniverseService:
             if category and _looks_like_category_mismatch(category, market_norm):
                 continue
 
-            ranked.append(UniverseMatch(market, score, entity_hits))
+            ranked.append(
+                UniverseMatch(market, score, entity_hits, market_cluster or "unknown")
+            )
 
         if not ranked:
             return None
