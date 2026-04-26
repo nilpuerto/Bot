@@ -1,10 +1,12 @@
 """Hard filter — the cheap, deterministic gate BEFORE calling the AI.
 
-Three conditions, all of which must be satisfied for the item to pass:
+Four conditions, all of which must be satisfied for the item to pass:
 
-1. Title / summary contains at least one configured strong keyword.
-2. Article is recent enough (``news_max_age_seconds``).
-3. Source is on the allowlist (if one is configured; empty list = allow all).
+1. Title does NOT match any blocklist pattern (structural noise: "Live Updates:",
+   "Opinion:", "Analysis:", etc. are never tradeable regardless of keywords).
+2. Title / summary contains at least one configured strong keyword.
+3. Article is recent enough (``news_max_age_seconds``).
+4. Source is on the allowlist (if one is configured; empty list = allow all).
 
 This single module is responsible for ~95 % of cost reduction: only items
 that survive reach Mistral.
@@ -32,14 +34,24 @@ class HardFilter:
         keywords: Optional[list[str]] = None,
         max_age_seconds: Optional[int] = None,
         allowed_sources: Optional[Iterable[str]] = None,
+        blocklist: Optional[list[str]] = None,
     ) -> None:
         self.keywords = keywords if keywords is not None else settings.hard_filter_keywords
         self.max_age_seconds = (
             max_age_seconds if max_age_seconds is not None else settings.news_max_age_seconds
         )
         self.allowed_sources = [s.lower() for s in allowed_sources] if allowed_sources else []
+        self.blocklist = (
+            blocklist if blocklist is not None else settings.hard_filter_blocklist
+        )
 
     def evaluate(self, item: NewsItem) -> FilterResult:
+        # Step 1: reject structural noise formats by title (cheap check, no Mistral).
+        title_lower = (item.title or "").lower()
+        for pattern in self.blocklist:
+            if pattern in title_lower:
+                return FilterResult(False, f"blocklist:{pattern}")
+
         text = f"{item.title}\n{item.summary or ''}"
         if not contains_any(text, self.keywords):
             return FilterResult(False, "no_strong_keyword")

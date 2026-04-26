@@ -342,14 +342,12 @@ class Orchestrator:
 
         if analysis.urgency <= 0:
             return
-        if analysis.impact == "neutral":
-            logger.debug("news_dropped_neutral_impact", title=item.title[:80])
-            return
-        # Universe-first matching means we no longer require the AI to
-        # invent a market hint — entities + a directional impact are
-        # enough for the in-memory matcher to find a real Polymarket
-        # market.  Only drop here when the AI gave us *nothing* to map
-        # (no hint AND no entities); that is genuine irrelevant noise.
+        # Neutral impact is no longer a hard veto — it is penalised at the
+        # EV / scoring layer where side is derived from z-score direction.
+        # Dropping it here would contradict the scoring-layer change that
+        # converts neutral into a noise_penalty rather than an outright
+        # rejection.  Only drop when urgency is 0 (already handled above)
+        # or when the AI returned literally nothing to anchor on.
         if analysis.market is None and not analysis.entities:
             logger.debug("news_dropped_no_anchor", title=item.title[:80])
             return

@@ -214,11 +214,28 @@ class Settings(BaseSettings):
             "wins,beats,defeats,clinches,advances,eliminated,knockout,"
             "champion,championship,final,semi-final,quarter-final,"
             "title,upset,injured,suspended,transfer,signs,returns,"
+            "ruled out,out for,day-to-day,doubtful,questionable,"
             "barcelona,madrid,real madrid,manchester,liverpool,bayern,"
             "psg,nba,nfl,ufc,la liga,premier league,champions league,"
             "world cup,super bowl,playoff,playoffs"
         ),
         alias="HARD_FILTER_KEYWORDS",
+    )
+    # Blocklist applied to the *title only* before any other check.
+    # Titles matching ANY of these patterns are dropped immediately —
+    # they are structural noise formats that never produce a tradeable
+    # event regardless of which keywords they contain.
+    # Pattern matching is substring / case-insensitive against the title.
+    hard_filter_blocklist_raw: str = Field(
+        default=(
+            "live updates,live blog,live coverage,follow live,"
+            "opinion:,opinion |analysis:,analysis |explainer:,explainer |"
+            "newsletter:,morning briefing,evening briefing,daily briefing,"
+            "weekly roundup,week in review,this week in,looking ahead,"
+            "what to know,what we know,everything you need,where things stand,"
+            "your questions answered,fact check,fact-check,quiz:"
+        ),
+        alias="HARD_FILTER_BLOCKLIST",
     )
 
     # ---- Strategy / Risk --------------------------------------------------
@@ -693,6 +710,10 @@ class Settings(BaseSettings):
     @property
     def hard_filter_keywords(self) -> List[str]:
         return [v.lower() for v in _split_csv(self.hard_filter_keywords_raw)]
+
+    @property
+    def hard_filter_blocklist(self) -> List[str]:
+        return [v.lower() for v in _split_csv(self.hard_filter_blocklist_raw)]
 
     @property
     def secondary_keywords(self) -> List[str]:

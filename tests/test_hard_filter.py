@@ -43,3 +43,47 @@ def test_source_allowlist_respected() -> None:
 def test_case_insensitive_keyword_match() -> None:
     hf = HardFilter(keywords=["Election"], max_age_seconds=300)
     assert hf.passes(_item("ELECTION: candidate wins by landslide")) is True
+
+
+# --- Blocklist tests ----------------------------------------------------------
+
+
+def _hf_with_blocklist(*patterns: str) -> HardFilter:
+    """Helper: filter with keyword=war + specific blocklist patterns."""
+    return HardFilter(keywords=["war", "shooting", "election"], max_age_seconds=300, blocklist=list(patterns))
+
+
+def test_blocklist_rejects_live_updates() -> None:
+    hf = _hf_with_blocklist("live updates", "live blog")
+    # Has "shooting" keyword but title starts with "Live Updates:"
+    result = hf.evaluate(_item("Live Updates: Trump Shooting Investigation Continues"))
+    assert result.passed is False
+    assert "blocklist" in result.reason
+
+
+def test_blocklist_rejects_opinion() -> None:
+    hf = _hf_with_blocklist("opinion:", "analysis:")
+    result = hf.evaluate(_item("Opinion: Why the War in Ukraine Matters"))
+    assert result.passed is False
+
+
+def test_blocklist_rejects_analysis_prefix() -> None:
+    hf = _hf_with_blocklist("analysis:")
+    result = hf.evaluate(_item("Analysis: What the election results mean"))
+    assert result.passed is False
+
+
+def test_blocklist_allows_genuine_event() -> None:
+    hf = HardFilter(keywords=["ceasefire", "war"], max_age_seconds=300, blocklist=["live updates", "opinion:"])
+    # Real event — no blocklist pattern in title, has keyword
+    assert hf.passes(_item("US confirms ceasefire agreement with Iran")) is True
+
+
+def test_blocklist_case_insensitive() -> None:
+    hf = _hf_with_blocklist("live updates")
+    assert hf.passes(_item("LIVE UPDATES: Shooting at Washington DC")) is False
+
+
+def test_empty_blocklist_does_not_block() -> None:
+    hf = HardFilter(keywords=["war"], max_age_seconds=300, blocklist=[])
+    assert hf.passes(_item("Live Updates: war declared")) is True

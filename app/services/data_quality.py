@@ -107,7 +107,13 @@ _CONFIRMED_RE = re.compile(
     r"\b(confirmed|announces|announced|declares|declared|signs|signed|"
     r"approved|votes|voted|passes|passed|ruled|rules|wins|won|appoints|"
     r"appointed|killed|dies|died|resigns|resigned|arrested|charged|"
-    r"indicted|fired|launched|launches)\b",
+    r"indicted|fired|launched|launches|"
+    # Sports injury / roster events — concrete, verifiable outcomes
+    r"ruled out|out for|day-to-day|named starter|named captain|"
+    r"suspended for|banned for|transfer confirmed|deal confirmed|"
+    r"deal done|deal agreed|agreement reached|ceasefire agreed|"
+    r"rate decision|rate unchanged|rate cut|rate hike|"
+    r"default declared|merger approved|acquisition completed)\b",
     re.IGNORECASE,
 )
 _REPORTED_RE = re.compile(
