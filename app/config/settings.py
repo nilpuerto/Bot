@@ -344,6 +344,28 @@ class Settings(BaseSettings):
         default=60, alias="USDC_BALANCE_CACHE_TTL"
     )
 
+    # ---- Market universe ------------------------------------------------
+    # The bot keeps an in-memory snapshot of the top active Polymarket
+    # markets, ranked by 24-h volume, and matches news against this
+    # universe BEFORE falling back to a Gamma text search.  The goal is
+    # to ground every signal in a market that exists *right now* —
+    # eliminating the "AI invented a market that doesn't exist" failure
+    # mode that produces 0 trades despite plenty of news.
+    market_universe_enabled: bool = Field(
+        default=True, alias="MARKET_UNIVERSE_ENABLED"
+    )
+    # How many top markets to keep cached.  300 covers the active long
+    # tail with margin (Polymarket typically lists ~150-250 active
+    # markets with non-trivial volume at any moment).
+    market_universe_size: int = Field(
+        default=300, alias="MARKET_UNIVERSE_SIZE"
+    )
+    # Refresh cadence.  Five minutes is a good balance between API
+    # politeness and staying current with new market launches.
+    market_universe_refresh_seconds: int = Field(
+        default=300, alias="MARKET_UNIVERSE_REFRESH_SECONDS"
+    )
+
     # ---- Market Intelligence feature layer (OFF by default) ------------
     # Advisory layer that turns raw microstructure/momentum/whale data
     # into two scalars consumed by the scorer:

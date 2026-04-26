@@ -249,11 +249,34 @@ following keys in the Render dashboard if you want the new behaviour:
 | `CLUSTER_MIN_WALLETS`        | `2`                   | Match a small `TRACKED_WALLETS` whitelist |
 | `CLUSTER_MIN_CONVICTION_USD` | `500`                 | Lower bar for whitelisted whales          |
 | `CLUSTER_MAX_TRADES_PER_DAY` | `3`                   | Allow cluster to actually trade           |
+| `MARKET_UNIVERSE_ENABLED`        | `true` | Polymarket-first matching (in-memory)              |
+| `MARKET_UNIVERSE_SIZE`           | `300`  | Top markets by 24-h volume cached locally          |
+| `MARKET_UNIVERSE_REFRESH_SECONDS`| `300`  | How often the universe refreshes from Gamma        |
 
 Click **Save Changes** — Render restarts the service automatically.
 Tail the logs to confirm `orchestrator_started`, `news_fetched`,
-`ai_analysis market=…` (no more wall-to-wall `market=None`), and
-eventually `trade_opened_real` / `trade_opened_simulated`.
+`market_universe_refreshed size=…`, `ai_analysis market=…`,
+`market_matched via=universe …`, and eventually `trade_opened_real`
+/ `trade_opened_simulated`.
+
+### What "Polymarket-first matching" means
+
+Earlier versions asked Mistral to *invent* a market hint and then
+searched Gamma for a market that matched the hint.  This produced
+endless `market=None` outcomes whenever the AI guessed a market that
+doesn't exist (e.g. "Will Trump be shot?").
+
+The bot now caches the top `MARKET_UNIVERSE_SIZE` active Polymarket
+markets ranked by 24-h volume and refreshes them every
+`MARKET_UNIVERSE_REFRESH_SECONDS`.  Each news item is matched against
+this in-memory universe first — only markets that actually exist *right
+now* can ever be returned.  If the universe misses, the matcher falls
+back to the existing Gamma text-search path so niche markets outside
+the top-N still get a chance.
+
+Operationally this means: **logs that previously read
+`market=None`-everywhere now resolve to real `market_id`s**, and most
+trades come from `market_matched via=universe` rather than `via=search`.
 
 ## License
 

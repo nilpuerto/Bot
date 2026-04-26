@@ -1,12 +1,16 @@
 """Market matching — turn an AI market hint into a concrete Polymarket market.
 
-v2 ranking blends three signals:
+v3 (universe-first) — ranking blends four signals:
 
+* **Universe pre-match** — every few minutes the bot caches the top-N
+  active Polymarket markets in :class:`MarketUniverseService`.  The
+  matcher tries this in-memory ranker first; only if nothing scores
+  above ``min_confidence`` does it fall back to the Gamma search API.
+  This guarantees the bot only ever returns markets that are actually
+  tradeable *right now*.
 * **Token overlap** with the AI hint + news title (Jaccard, base signal).
 * **Entity match** — count of AI-extracted entities that appear verbatim
-  in the market question.  Each entity match adds a sizeable bonus, on
-  the rationale that "Trump wins 2028" + entity `Trump` is a much
-  stronger hit than token-level overlap alone.
+  in the market question.  Each entity match adds a sizeable bonus.
 * **Liquidity tie-breaker** — more active markets win when two
   candidates are otherwise tied.
 
@@ -18,6 +22,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional
 
 from app.integrations.polymarket_client import MarketSnapshot, PolymarketClient
+from app.services.market_universe import MarketUniverseService
 from app.utils.logger import get_logger
 from app.utils.text import normalize
 
@@ -30,6 +35,7 @@ class MatchResult:
     market: MarketSnapshot
     confidence: float  # 0..1
     entity_hits: int = 0
+    via: str = "search"  # 'universe' | 'search'
 
 
 class MarketMatchingService:
@@ -38,10 +44,12 @@ class MarketMatchingService:
         polymarket: PolymarketClient,
         min_confidence: float = 0.20,
         search_limit: int = 12,
+        universe: Optional[MarketUniverseService] = None,
     ) -> None:
         self._poly = polymarket
         self._min_confidence = min_confidence
         self._search_limit = search_limit
+        self._universe = universe
 
     async def find(
         self,
@@ -51,6 +59,36 @@ class MarketMatchingService:
         entities: Optional[Iterable[str]] = None,
         category: Optional[str] = None,
     ) -> Optional[MatchResult]:
+        # 0. Universe pre-match — fast in-memory ranker against the
+        # currently-active Polymarket catalogue.  Wins outright when it
+        # clears the confidence floor; otherwise we still fall through
+        # to the Gamma search below so an obscure but tradeable market
+        # not in the top-N can still be picked up.
+        if self._universe is not None and self._universe.size > 0:
+            ent_list = list(entities) if entities else []
+            uni_match = self._universe.find_match(
+                ai_market_hint=ai_market_hint,
+                news_title=news_title,
+                entities=ent_list,
+                category=category,
+                min_score=self._min_confidence,
+            )
+            if uni_match is not None:
+                logger.info(
+                    "market_matched",
+                    via="universe",
+                    market_id=uni_match.market.id,
+                    question=uni_match.market.question,
+                    confidence=round(uni_match.score, 3),
+                    entity_hits=uni_match.entity_hits,
+                )
+                return MatchResult(
+                    market=uni_match.market,
+                    confidence=min(1.0, uni_match.score),
+                    entity_hits=uni_match.entity_hits,
+                    via="universe",
+                )
+
         query = ai_market_hint or news_title
         if not query:
             return None
@@ -120,6 +158,7 @@ class MarketMatchingService:
 
         logger.info(
             "market_matched",
+            via="search",
             query=query,
             market_id=best_market.id,
             question=best_market.question,
@@ -130,6 +169,7 @@ class MarketMatchingService:
             market=best_market,
             confidence=min(1.0, best_score),
             entity_hits=best_entity_hits,
+            via="search",
         )
 
 

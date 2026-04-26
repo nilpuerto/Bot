@@ -51,6 +51,7 @@ from app.services.market_intelligence import (
 )
 from app.services.feedback_loop import FeedbackLoop
 from app.services.market_matching import MarketMatchingService
+from app.services.market_universe import MarketUniverseService
 from app.services.microstructure import MicrostructureFeatures, MicrostructureService
 from app.services.mispricing import MispricingResult, MispricingService, PriceSampler
 from app.services.news_ingestion import IngestedNews, NewsIngestionService
@@ -89,6 +90,7 @@ class Orchestrator:
         self._sampler: Optional[PriceSampler] = None
         self._secondary: Optional[SecondaryMarketsScout] = None
         self._cluster: Optional[WalletClusterScanner] = None
+        self._universe: Optional[MarketUniverseService] = None
         self._feedback = FeedbackLoop()
         self._app = None  # telegram.ext.Application
 
@@ -137,6 +139,8 @@ class Orchestrator:
         self._sampler = PriceSampler(self._poly)
         self._secondary = SecondaryMarketsScout(self._poly)
         self._cluster = WalletClusterScanner(self._poly)
+        if settings.market_universe_enabled:
+            self._universe = MarketUniverseService(self._poly)
 
         self._app = build_application(
             trade_executor=self._executor,
@@ -154,7 +158,7 @@ class Orchestrator:
 
         logger.info("orchestrator_started")
 
-        await asyncio.gather(
+        coros = [
             self._traders.run_refresh_loop(),
             self._monitor.run(),
             self._sampler.run(),
@@ -168,7 +172,10 @@ class Orchestrator:
                 name="housekeeping",
             ),
             self._stop.wait(),
-        )
+        ]
+        if self._universe is not None:
+            coros.insert(0, self._universe.run_refresh_loop())
+        await asyncio.gather(*coros)
 
     async def shutdown(self) -> None:
         logger.info("orchestrator_shutting_down")
@@ -208,6 +215,8 @@ class Orchestrator:
             self._secondary.stop()
         if self._cluster:
             self._cluster.stop()
+        if self._universe:
+            self._universe.stop()
 
     # ---- cached market / book fetchers ---------------------------------
 
@@ -321,10 +330,18 @@ class Orchestrator:
             market=analysis.market,
         )
 
-        if analysis.urgency <= 0 or analysis.market is None:
+        if analysis.urgency <= 0:
             return
         if analysis.impact == "neutral":
             logger.debug("news_dropped_neutral_impact", title=item.title[:80])
+            return
+        # Universe-first matching means we no longer require the AI to
+        # invent a market hint — entities + a directional impact are
+        # enough for the in-memory matcher to find a real Polymarket
+        # market.  Only drop here when the AI gave us *nothing* to map
+        # (no hint AND no entities); that is genuine irrelevant noise.
+        if analysis.market is None and not analysis.entities:
+            logger.debug("news_dropped_no_anchor", title=item.title[:80])
             return
 
         # Freshness pre-gate — cheaper to check before market match.
@@ -342,8 +359,8 @@ class Orchestrator:
             )
             return
 
-        # 2. Market matching.
-        matcher = MarketMatchingService(self._poly)
+        # 2. Market matching — universe first, then Gamma search.
+        matcher = MarketMatchingService(self._poly, universe=self._universe)
         match = await matcher.find(
             ai_market_hint=analysis.market,
             news_title=item.title,
@@ -351,6 +368,12 @@ class Orchestrator:
             category=analysis.category,
         )
         if match is None:
+            logger.debug(
+                "news_dropped_no_market_match",
+                title=item.title[:80],
+                hint=analysis.market,
+                entities=analysis.entities,
+            )
             return
         market = match.market
         self._market_cache.set(market.id, market)

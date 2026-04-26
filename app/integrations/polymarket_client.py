@@ -187,6 +187,69 @@ class PolymarketClient:
             return []
         return [_parse_market(m) for m in resp.json() if isinstance(m, dict)]
 
+    async def list_active_markets(
+        self,
+        *,
+        limit: int = 200,
+        order: str = "volume24hr",
+        ascending: bool = False,
+    ) -> list[MarketSnapshot]:
+        """List active markets ranked by ``order`` (default: 24-h volume).
+
+        This is the *seed* for the bot's market universe — a best-effort
+        snapshot of every market currently tradeable, refreshed
+        periodically by ``MarketUniverseService``.  Unlike
+        :meth:`search_markets`, no text query is sent — we get the raw
+        catalogue and filter / rank in Python.
+
+        Gamma caps a single request at 100 items, so for limits above
+        that we paginate transparently with ``offset``.
+        """
+        assert self._http is not None
+        page_size = 100
+        if limit <= 0:
+            return []
+        out: list[MarketSnapshot] = []
+        offset = 0
+        seen_ids: set[str] = set()
+        while len(out) < limit:
+            page_limit = min(page_size, limit - len(out))
+            params = {
+                "limit": page_limit,
+                "offset": offset,
+                "active": "true",
+                "closed": "false",
+                "order": order,
+                "ascending": "true" if ascending else "false",
+            }
+            try:
+                resp = await self._http.get(f"{GAMMA_BASE}/markets", params=params)
+                resp.raise_for_status()
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "gamma_list_active_error",
+                    error=str(exc),
+                    offset=offset,
+                )
+                break
+            payload = resp.json()
+            if not isinstance(payload, list) or not payload:
+                break
+            new_in_page = 0
+            for raw in payload:
+                if not isinstance(raw, dict):
+                    continue
+                market = _parse_market(raw)
+                if not market.id or market.id in seen_ids:
+                    continue
+                seen_ids.add(market.id)
+                out.append(market)
+                new_in_page += 1
+            if new_in_page == 0 or len(payload) < page_limit:
+                break
+            offset += page_limit
+        return out
+
     async def get_market(self, market_id: str) -> Optional[MarketSnapshot]:
         assert self._http is not None
         try:
