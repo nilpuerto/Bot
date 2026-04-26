@@ -36,8 +36,8 @@ class MarketMatchingService:
     def __init__(
         self,
         polymarket: PolymarketClient,
-        min_confidence: float = 0.25,
-        search_limit: int = 10,
+        min_confidence: float = 0.20,
+        search_limit: int = 12,
     ) -> None:
         self._poly = polymarket
         self._min_confidence = min_confidence
@@ -137,10 +137,13 @@ class MarketMatchingService:
 
 _CATEGORY_STOPWORDS: dict[str, set[str]] = {
     # Category → tokens that should rarely appear in a matching market.
-    "economic": {"nba", "nfl", "ufc", "goal", "champions", "kicker"},
-    "political": {"nba", "nfl", "ufc", "tesla", "iphone"},
+    # Empty set = no enforced mismatch (we don't over-filter).
+    "economic": {"nba", "nfl", "ufc", "kicker"},
+    "political": {"nba", "nfl", "ufc", "iphone"},
     "geopolitical": {"nba", "nfl", "ufc", "oscar", "grammy"},
     "climate": {"nba", "nfl", "ufc", "election", "president"},
+    "sports": {"election", "fed", "cpi", "ceasefire", "sanctions"},
+    "crypto": {"nba", "nfl", "ufc", "election", "president", "ceasefire"},
     "social": set(),
     "other": set(),
 }

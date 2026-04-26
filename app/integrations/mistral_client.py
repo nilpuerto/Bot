@@ -47,28 +47,63 @@ MISTRAL_ENDPOINT = "https://api.mistral.ai/v1/chat/completions"
 
 SYSTEM_PROMPT = (
     "You are a deterministic parser for prediction-market headlines "
-    "(Polymarket).  Extract a minimal set of structured fields.  Do NOT "
-    "reason about magnitude, narrative implications, or trade calls.\n\n"
-    "Return ONLY compact JSON matching this schema exactly:\n"
+    "(Polymarket).  Your job is to map the headline to a tradeable "
+    "Polymarket market and extract structured fields.  Do NOT reason "
+    "about magnitude, narrative implications, or trade calls.\n\n"
+    "Polymarket has live markets across MANY domains:\n"
+    "- Politics: elections (US presidential, Senate, Speaker), votes, "
+    "referendums, approval ratings, who-will-be-next-X.\n"
+    "- Macro/Finance: Fed rate decisions, CPI prints, recession, "
+    "unemployment, IPOs, bankruptcies.\n"
+    "- Geopolitics: ceasefires, Russia-Ukraine, Israel-Hamas, Iran "
+    "tensions, leader-stays-in-power, summit outcomes.\n"
+    "- Sports: NBA/NFL/NHL/UFC/MLB, La Liga/EPL/Champions League/MLS, "
+    "match winners, championship winners, MVP awards, transfers.\n"
+    "- Crypto: BTC/ETH/SOL price thresholds, ETF approvals, hacks, "
+    "halving, regulatory rulings.\n"
+    "- Climate/Weather: temperature records, hurricanes, snowfall, "
+    "extreme-weather events.\n"
+    "- Pop-culture: Oscars, Grammys, music charts, who-will-host.\n"
+    "- Regulation/legal: SEC actions, court rulings, bans, approvals.\n\n"
+    "Return ONLY compact JSON matching this schema EXACTLY:\n"
     "{"
     '"market": string|null, '
-    '"category": "political"|"economic"|"geopolitical"|"social"|"climate"|"other", '
+    '"category": "political"|"economic"|"geopolitical"|"sports"|"crypto"|"climate"|"social"|"other", '
     '"impact": "bullish"|"bearish"|"neutral", '
     '"urgency": int 0-10, '
     '"entities": [string, ...]'
     "}\n\n"
-    "Definitions:\n"
-    "- market: one short phrase naming the prediction market most "
-    "directly affected by the headline.  Null when none applies.\n"
-    "- impact: does the headline push the market UP (bullish), DOWN "
-    "(bearish), or neither (neutral).\n"
-    "- urgency: how fast the market must reprice (10 = seconds, 0 = "
-    "stale/irrelevant).  Use 0 for anything older than a day or for "
-    "unrelated news.\n"
-    "- entities: short tags like 'Fed', 'Putin', 'Nvidia', 'Israel'.\n\n"
-    "If the news is irrelevant, generic, or off-topic, return:\n"
-    '{"market": null, "category": "other", "impact": "neutral", '
-    '"urgency": 0, "entities": []}.'
+    "Field rules:\n"
+    "- market: SHORT concrete phrase naming the most-likely-affected "
+    "Polymarket market (e.g. 'Trump wins 2028', 'Bitcoin above 150k EOY', "
+    "'Barcelona wins La Liga', 'Madrid above 25C this week').  Return "
+    "null ONLY for genuine fluff (cute pets, soft features, unrelated "
+    "local crime, obituaries of non-public figures).\n"
+    "- impact: bullish = headline pushes the named market UP, bearish = "
+    "DOWN, neutral = no clear direction.  LEAN toward bullish/bearish "
+    "whenever there is ANY directional read; reserve neutral only for "
+    "genuinely ambiguous news.\n"
+    "- urgency: 10 = reprice in seconds (breaking shock), 7-9 = next "
+    "minutes, 4-6 = within the hour, 1-3 = day-scale, 0 = stale or "
+    "totally unrelated.\n"
+    "- entities: short tags ('Fed', 'Putin', 'Bitcoin', 'Barca', "
+    "'Israel').\n\n"
+    "Examples:\n"
+    "Headline: 'Bitcoin hits 80k as ETF inflows surge'\n"
+    '-> {"market":"Bitcoin above 100k EOY","category":"crypto",'
+    '"impact":"bullish","urgency":7,"entities":["Bitcoin","ETF"]}\n\n'
+    "Headline: 'Barcelona to face Getafe with 8 first-team players out'\n"
+    '-> {"market":"Barcelona beats Getafe","category":"sports",'
+    '"impact":"bearish","urgency":6,"entities":["Barcelona","Getafe"]}\n\n'
+    "Headline: 'Heatwave: Spain expected to hit 24C this week'\n"
+    '-> {"market":"Madrid above 25C this week","category":"climate",'
+    '"impact":"bullish","urgency":5,"entities":["Spain","weather"]}\n\n'
+    "Headline: 'Camilla takes Winnie-the-Pooh stuffed toy to New York'\n"
+    '-> {"market":null,"category":"other","impact":"neutral",'
+    '"urgency":0,"entities":[]}\n\n'
+    "If the news is genuinely irrelevant, return:\n"
+    '{"market":null,"category":"other","impact":"neutral","urgency":0,'
+    '"entities":[]}.'
 )
 
 
@@ -80,7 +115,16 @@ USER_PROMPT_TEMPLATE = (
 )
 
 
-Category = Literal["political", "economic", "geopolitical", "social", "climate", "other"]
+Category = Literal[
+    "political",
+    "economic",
+    "geopolitical",
+    "sports",
+    "crypto",
+    "social",
+    "climate",
+    "other",
+]
 
 
 class AIAnalysis(BaseModel):
@@ -136,7 +180,16 @@ class AIAnalysis(BaseModel):
         if not v:
             return "other"
         s = str(v).strip().lower()
-        allowed = {"political", "economic", "geopolitical", "social", "climate", "other"}
+        allowed = {
+            "political",
+            "economic",
+            "geopolitical",
+            "sports",
+            "crypto",
+            "social",
+            "climate",
+            "other",
+        }
         return s if s in allowed else "other"
 
     @field_validator("entities", "second_order", mode="before")
@@ -201,7 +254,7 @@ class MistralClient:
             "model": self._model,
             "response_format": {"type": "json_object"},
             "temperature": 0.1,
-            "max_tokens": 180,
+            "max_tokens": 240,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {

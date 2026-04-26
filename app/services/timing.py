@@ -7,13 +7,16 @@ Phase  Label                                          Action
 =====  =============================================  ===========
 1      Early leak / rumour (pre-news)                 ENTER (edge)
 2      Breaking reaction (0..120 s)                   ENTER
-3      Retail influx (2..5 min, volume-driven)        CAUTION
+3      Retail influx (2..MAX_NEWS_AGE_FOR_TRADE)      CAUTION
 4      Overreaction (fast price, low new volume)      AVOID
 5      Decay / mean reversion                         EXIT ZONE
 =====  =============================================  ===========
 
-We trade phases 1 & 2 **only**.  The phase is computed from simple,
-deterministic features so behaviour is predictable and testable:
+We trade phases 1, 2 and 3 (CORE profile).  Phase 3's upper bound is
+configurable via ``settings.max_news_age_for_trade`` so that raising
+the freshness ceiling actually expands the tradeable window — before
+this fix the fallback was hard-coded to 300 s, which silently capped
+``MAX_NEWS_AGE_FOR_TRADE > 300``.
 
 * ``news_age_s``    — seconds since headline publish time (``None`` if
                       we spotted the move but no headline matched yet →
@@ -30,6 +33,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Optional
+
+from app.config.settings import settings
 
 
 @dataclass
@@ -88,18 +93,23 @@ def detect_phase(features: TimingFeatures) -> TimingDecision:
     if age <= 120:
         return TimingDecision(2, PHASE_SCORE[2], PHASE_LABEL[2], "within_2_minutes")
 
+    # Phase-3 ceiling tracks the freshness gate so raising it via env
+    # actually widens the tradeable window.  Default 300 s preserves
+    # legacy behaviour for callers that haven't tuned the env.
+    phase3_ceiling = float(getattr(settings, "max_news_age_for_trade", 300) or 300)
+
     # Phase 3a: retail influx with confirmed volume surge.
-    if age <= 300 and dvol_5m > 1.5 * avg_vol:
+    if age <= phase3_ceiling and dvol_5m > 1.5 * avg_vol:
         return TimingDecision(3, PHASE_SCORE[3], PHASE_LABEL[3], "retail_volume_surge")
 
-    # Phase 3b (age fallback): 2..5 min old AND no real-time volume /
-    # price-delta data is available (orchestrator's default — the news
-    # pipeline does not compute per-market dvol/dprice).  Without this
-    # fallback every >2-minute headline collapsed into phase 5 and never
-    # traded.  When we DO have real-time data (dvol/dprice non-zero),
-    # the original phase 3/4/5 logic below still applies.
-    if age <= 300 and dvol_5m == 0.0 and dprice_1m == 0.0:
-        return TimingDecision(3, PHASE_SCORE[3], PHASE_LABEL[3], "within_5_minutes_no_realtime")
+    # Phase 3b (age fallback): within the freshness window AND no
+    # real-time volume / price-delta data (orchestrator default — the
+    # news pipeline does not compute per-market dvol/dprice).  Without
+    # this fallback every headline >2 min old would collapse to phase
+    # 5 and never trade.  When we DO have real-time data
+    # (dvol/dprice non-zero), the phase 4/5 logic below still applies.
+    if age <= phase3_ceiling and dvol_5m == 0.0 and dprice_1m == 0.0:
+        return TimingDecision(3, PHASE_SCORE[3], PHASE_LABEL[3], "within_window_no_realtime")
 
     # Phase 4: overreaction — big price movement without matching new volume.
     if dvol_5m < 0.5 * avg_vol and abs(dprice_1m) > 0.03:

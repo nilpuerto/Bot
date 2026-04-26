@@ -126,11 +126,74 @@ class Settings(BaseSettings):
     )
 
     # ---- News --------------------------------------------------------------
-    rss_feeds_raw: str = Field(default="", alias="RSS_FEEDS")
+    # Default feeds cover politics + macro + sports + crypto so the bot
+    # has tradeable headlines even on slow news days for one domain.
+    # Anything set in the environment fully replaces the default — this
+    # is just a sane out-of-the-box configuration.
+    rss_feeds_raw: str = Field(
+        default=(
+            # Politics / world news
+            "https://feeds.bbci.co.uk/news/rss.xml,"
+            "https://feeds.bbci.co.uk/news/world/rss.xml,"
+            "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml,"
+            "https://www.theguardian.com/world/rss,"
+            "https://feeds.npr.org/1001/rss.xml,"
+            "https://www.aljazeera.com/xml/rss/all.xml,"
+            "https://feeds.apnews.com/apf-topnews,"
+            "https://www.politico.com/rss/politicopicks.xml,"
+            "https://thehill.com/rss/syndicator/19110,"
+            # Finance / macro
+            "https://feeds.bbci.co.uk/news/business/rss.xml,"
+            "https://feeds.marketwatch.com/marketwatch/topstories/,"
+            # Crypto
+            "https://www.coindesk.com/arc/outboundfeeds/rss/,"
+            "https://cointelegraph.com/rss,"
+            "https://www.theblock.co/rss.xml,"
+            # Sports
+            "https://feeds.bbci.co.uk/sport/rss.xml,"
+            "https://www.espn.com/espn/rss/news"
+        ),
+        alias="RSS_FEEDS",
+    )
     news_poll_interval_seconds: int = Field(default=45, alias="NEWS_POLL_INTERVAL_SECONDS")
     news_max_age_seconds: int = Field(default=300, alias="NEWS_MAX_AGE_SECONDS")
+    # Wider keyword set — politics + macro + sports + crypto + weather.
+    # The hard filter is the cost-saving choke point; we still want it
+    # to drop pure fluff, but it shouldn't be so narrow that breaking
+    # sports/crypto news never reaches the AI parser.
     hard_filter_keywords_raw: str = Field(
-        default="election,war,breaking,ban,approved,dies,resign,ceasefire",
+        default=(
+            # Breaking / certainty
+            "breaking,urgent,confirmed,announces,announced,declared,signed,"
+            # Politics
+            "vote,votes,election,referendum,impeach,impeached,indicted,"
+            "charged,arrested,resign,resigned,ousted,sworn in,coup,"
+            # Geopolitics / war
+            "war,ceasefire,invasion,invades,airstrike,missile,drone strike,"
+            "nuclear,annexation,sanction,sanctions,embargo,hostage,"
+            # Macro / finance
+            "rate cut,rate hike,fed,ecb,cpi,inflation,recession,default,"
+            "bankruptcy,bankrupt,sec charges,fraud,ipo,earnings,layoffs,"
+            # Legal / verdict / regulatory
+            "verdict,ruling,approved,rejected,ban,halt,shutdown,lawsuit,"
+            # Disasters
+            "earthquake,hurricane,wildfire,tsunami,flood,storm,heatwave,"
+            "blizzard,record temperature,record heat,record cold,"
+            # Markets & shocks
+            "crash,plunge,surge,soars,jumps,record high,record low,"
+            # Casualties (high-magnitude events)
+            "dies,died,killed,assassinated,explosion,shooting,attack,"
+            # Crypto
+            "bitcoin,ethereum,btc,eth,crypto,etf,halving,stablecoin,"
+            "hack,exploit,liquidation,delisted,listed,regulation,"
+            # Sports (match outcomes that typically have markets)
+            "wins,beats,defeats,clinches,advances,eliminated,knockout,"
+            "champion,championship,final,semi-final,quarter-final,"
+            "title,upset,injured,suspended,transfer,signs,returns,"
+            "barcelona,madrid,real madrid,manchester,liverpool,bayern,"
+            "psg,nba,nfl,ufc,la liga,premier league,champions league,"
+            "world cup,super bowl,playoff,playoffs"
+        ),
         alias="HARD_FILTER_KEYWORDS",
     )
 
@@ -187,7 +250,11 @@ class Settings(BaseSettings):
     band_high_pct: float = Field(default=3.0, alias="BAND_HIGH_PCT")
 
     # ---- Data quality gate ----------------------------------------------
-    dq_min_score: float = Field(default=70.0, alias="DQ_MIN_SCORE")
+    # 55 keeps obvious blogs/medium/substack noise out (DEFAULT_SOURCE_SCORE
+    # is 30; 55 - 30 = 25 worth of certainty + recency + corroboration is
+    # easy to clear for a real story) while letting Tier-2 outlets like
+    # CoinDesk, ESPN, MarketWatch and BBC Sport through.
+    dq_min_score: float = Field(default=55.0, alias="DQ_MIN_SCORE")
     dq_corroboration_window_minutes: int = Field(
         default=30, alias="DQ_CORROBORATION_WINDOW_MINUTES"
     )
@@ -215,20 +282,22 @@ class Settings(BaseSettings):
     # below ``low_prob_entry_price``) must clear ``low_prob_min_edge_pct``
     # instead — we demand more compensation when the implied probability
     # is already tiny.
-    min_edge_pct: float = Field(default=3.0, alias="MIN_EDGE_PCT")
+    # 2.0 % default favours frequency over perfection — the trailing stop
+    # + partial-TP ladder are designed to win big and lose small, so we
+    # don't need a fat per-trade edge to be EV-positive.
+    min_edge_pct: float = Field(default=2.0, alias="MIN_EDGE_PCT")
     polymarket_fee_pct: float = Field(default=0.0, alias="POLYMARKET_FEE_PCT")
 
     # ---- Hard edge gates (measurable only) -----------------------------
-    # Minimum |mispricing z-score| required to fire any signal.  A z of
-    # 1.5 means the mid price sits one-and-a-half standard deviations
-    # away from its 30-day rolling mean — statistically notable but not
-    # extreme.  CORE signals clear this; LOW-PROB signals (cheap entries)
-    # have to clear ``low_prob_z_min`` instead.
-    z_min_for_trade: float = Field(default=1.5, alias="Z_MIN_FOR_TRADE")
-    # Maximum age of the news item that triggered the signal before it is
-    # considered stale for trading purposes.  Strict freshness gate.
+    # Minimum |mispricing z-score| required to fire any signal.  1.2 is
+    # "statistically notable" without being rare — the 1.5 default was
+    # killing too many borderline-tradeable mispricings.
+    z_min_for_trade: float = Field(default=1.2, alias="Z_MIN_FOR_TRADE")
+    # Freshness ceiling.  10 minutes is generous but matches typical
+    # news→Polymarket repricing latency; the timing detector still
+    # prefers earlier phases via the sizing tier.
     max_news_age_for_trade: int = Field(
-        default=300, alias="MAX_NEWS_AGE_FOR_TRADE"
+        default=600, alias="MAX_NEWS_AGE_FOR_TRADE"
     )
     # Minimum fraction of the intended notional that must be fillable
     # from the top of book for the signal to trade.  Prevents partial
@@ -253,9 +322,9 @@ class Settings(BaseSettings):
     low_prob_entry_price: float = Field(
         default=0.10, alias="LOW_PROB_ENTRY_PRICE"
     )
-    low_prob_z_min: float = Field(default=2.5, alias="LOW_PROB_Z_MIN")
+    low_prob_z_min: float = Field(default=2.0, alias="LOW_PROB_Z_MIN")
     low_prob_min_edge_pct: float = Field(
-        default=8.0, alias="LOW_PROB_MIN_EDGE_PCT"
+        default=6.0, alias="LOW_PROB_MIN_EDGE_PCT"
     )
 
     # ---- Timing / Price sampler -----------------------------------------
@@ -414,15 +483,15 @@ class Settings(BaseSettings):
     cluster_enabled: bool = Field(default=True, alias="CLUSTER_ENABLED")
     # Vigilancia mode — when True, the cluster scanner ONLY emits
     # Telegram notifications when tracked wallets converge on a market.
-    # No edge gates are run, no trade is executed.  News-driven signals
-    # remain the only auto-trade path.  Default True so production
-    # deployments are conservative; flip to False to re-enable the full
-    # cluster→trade pipeline (legacy behaviour).
-    cluster_watch_only: bool = Field(default=True, alias="CLUSTER_WATCH_ONLY")
-    cluster_min_wallets: int = Field(default=3, alias="CLUSTER_MIN_WALLETS")
+    # No edge gates are run, no trade is executed.  When False (default
+    # under the more-trades refactor), a cluster event substitutes for a
+    # news catalyst and runs through the full edge-first pipeline before
+    # opening a trade.
+    cluster_watch_only: bool = Field(default=False, alias="CLUSTER_WATCH_ONLY")
+    cluster_min_wallets: int = Field(default=2, alias="CLUSTER_MIN_WALLETS")
     cluster_window_hours: int = Field(default=2, alias="CLUSTER_WINDOW_HOURS")
     cluster_min_conviction_usd: float = Field(
-        default=5000.0, alias="CLUSTER_MIN_CONVICTION_USD"
+        default=500.0, alias="CLUSTER_MIN_CONVICTION_USD"
     )
     cluster_scan_interval_seconds: int = Field(
         default=180, alias="CLUSTER_SCAN_INTERVAL_SECONDS"
@@ -431,10 +500,10 @@ class Settings(BaseSettings):
         default=3600, alias="CLUSTER_DEDUP_TTL_SECONDS"
     )
     cluster_max_candidates_per_scan: int = Field(
-        default=5, alias="CLUSTER_MAX_CANDIDATES_PER_SCAN"
+        default=8, alias="CLUSTER_MAX_CANDIDATES_PER_SCAN"
     )
     cluster_max_trades_per_day: int = Field(
-        default=2, alias="CLUSTER_MAX_TRADES_PER_DAY"
+        default=3, alias="CLUSTER_MAX_TRADES_PER_DAY"
     )
 
     # ---- Housekeeping / retention ---------------------------------------

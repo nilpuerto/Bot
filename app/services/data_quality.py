@@ -43,31 +43,60 @@ from app.utils.time import seconds_since
 # a middling 30 — the bot can still trade them but with a penalty.
 
 SOURCE_RELIABILITY: dict[str, int] = {
+    # --- Tier 1 wires & majors -----------------------------------------
     "reuters": 50,
     "bloomberg": 50,
     "associated press": 48,
     "ap news": 48,
     "ap top": 48,
+    "ap world": 48,
+    "ap business": 48,
     "financial times": 46,
     "wall street journal": 46,
     "bbc": 44,
     "bbc news": 44,
+    "bbc world": 44,
+    "bbc business": 44,
     "the economist": 42,
-    "axios": 38,
-    "cnbc": 38,
-    "politico": 36,
-    "the guardian": 36,
     "nyt": 40,
     "new york times": 40,
+    # --- Tier 2 quality outlets ----------------------------------------
+    "axios": 38,
+    "cnbc": 38,
+    "marketwatch": 36,
+    "barron": 38,  # matches "barron's" / "barrons"
+    "yahoo finance": 34,
+    "the hill": 34,
+    "politico": 36,
+    "the guardian": 36,
+    "guardian": 36,
     "washington post": 38,
+    "npr": 36,
+    "al jazeera": 34,
+    # --- Sports (treated as Tier 2 — outcomes are publicly verifiable) -
+    "espn": 38,
+    "bbc sport": 40,
+    "sky sports": 36,
+    "the athletic": 38,
+    "marca": 32,
+    "as": 30,  # AS sports newspaper
+    "goal": 30,
+    # --- Crypto (Tier 2/3, sometimes opinionated) ----------------------
+    "coindesk": 38,
+    "the block": 38,
+    "cointelegraph": 30,
+    "decrypt": 30,
+    "blockworks": 30,
+    # --- Tier 3 / opinionated cable ------------------------------------
     "cnn": 30,
     "fox": 28,
     "forbes": 26,
+    # --- Tier 4 / weak ------------------------------------------------
     "twitter": 20,
     "x.com": 20,
     "medium": 18,
-    "blog": 12,
     "substack": 15,
+    "blog": 12,
 }
 DEFAULT_SOURCE_SCORE = 30
 

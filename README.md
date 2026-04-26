@@ -25,12 +25,18 @@ conditions:
 ```
 passes_trade =
     impact != "neutral"                     # direction
-  AND news_age_s <= MAX_NEWS_AGE_FOR_TRADE  # freshness  (default 300 s)
-  AND timing.phase in {1, 2}                # timing     (leak / breaking)
-  AND |mispricing.z| >= Z_MIN_FOR_TRADE     # deviation  (default 2.0)
-  AND net_edge_pct >= MIN_EDGE_PCT          # EV > costs (default 5 %)
+  AND news_age_s <= MAX_NEWS_AGE_FOR_TRADE  # freshness  (default 600 s)
+  AND timing.phase in {1, 2, 3}             # timing     (leak / breaking / early retail)
+  AND |mispricing.z| >= Z_MIN_FOR_TRADE     # deviation  (default 1.2)
+  AND net_edge_pct >= MIN_EDGE_PCT          # EV > costs (default 2 %)
   AND fill_ratio >= MIN_FILL_RATIO          # execution  (default 0.75)
 ```
+
+The edge thresholds are deliberately tuned for "win big, lose small":
+the trailing stop + partial-TP ladder magnify winners while keeping
+losers small, so the per-trade edge requirement can stay modest and
+the bot still hits a meaningful number of trades per month (target
+range: 40–60 with default settings + tracked wallets).
 
 Alerts share the trade gate — we no longer surface "maybe interesting"
 signals that would never clear the cost model.
@@ -90,7 +96,7 @@ signals that would never clear the cost model.
    ┌────────────── HARD GATE CLUSTER ─────────────┐
    │ impact != neutral                            │
    │ news_age ≤ MAX_NEWS_AGE_FOR_TRADE            │
-   │ phase ∈ {1, 2}                               │
+   │ phase ∈ {1, 2, 3}                            │
    │ |z| ≥ Z_MIN_FOR_TRADE                        │
    └──────────────────────┬───────────────────────┘
                           │ (fail → drop silently)
@@ -219,6 +225,35 @@ python -m scripts.backtest path/to/tape.jsonl
 
 The report prints win rate, expectancy, profit factor, Sharpe ratio and
 max drawdown.  See the module docstring for the exact JSON schema.
+
+## Deploying on Render
+
+Render auto-deploys on every push to the connected branch.  All runtime
+parameters live in **Render → your service → Environment** — the `.env`
+on your laptop is irrelevant to production.
+
+After pulling the latest version that ships these defaults, update the
+following keys in the Render dashboard if you want the new behaviour:
+
+| Variable                     | New recommended value | Why                                       |
+| ---------------------------- | --------------------- | ----------------------------------------- |
+| `RSS_FEEDS`                  | (see `.env.example`)  | Adds crypto + sports + finance feeds      |
+| `HARD_FILTER_KEYWORDS`       | (see `.env.example`)  | Wider pre-AI net (sports, crypto, weather)|
+| `DQ_MIN_SCORE`               | `55`                  | Lets Tier-2 outlets through               |
+| `MAX_NEWS_AGE_FOR_TRADE`     | `600`                 | 10 min freshness window                   |
+| `Z_MIN_FOR_TRADE`            | `1.2`                 | More borderline mispricings qualify       |
+| `MIN_EDGE_PCT`               | `2.0`                 | "Win big, lose small" tuning              |
+| `LOW_PROB_Z_MIN`             | `2.0`                 | Eases lottery-ticket profile              |
+| `LOW_PROB_MIN_EDGE_PCT`      | `6.0`                 | Eases lottery-ticket profile              |
+| `CLUSTER_WATCH_ONLY`         | `false`               | Enables soft copy-trade on convergence    |
+| `CLUSTER_MIN_WALLETS`        | `2`                   | Match a small `TRACKED_WALLETS` whitelist |
+| `CLUSTER_MIN_CONVICTION_USD` | `500`                 | Lower bar for whitelisted whales          |
+| `CLUSTER_MAX_TRADES_PER_DAY` | `3`                   | Allow cluster to actually trade           |
+
+Click **Save Changes** — Render restarts the service automatically.
+Tail the logs to confirm `orchestrator_started`, `news_fetched`,
+`ai_analysis market=…` (no more wall-to-wall `market=None`), and
+eventually `trade_opened_real` / `trade_opened_simulated`.
 
 ## License
 
