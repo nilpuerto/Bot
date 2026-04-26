@@ -350,19 +350,43 @@ class Settings(BaseSettings):
     low_prob_min_edge_pct: float = Field(
         default=6.0, alias="LOW_PROB_MIN_EDGE_PCT"
     )
-    # ---- Continuous EDGE_SCORE thresholds (tiered execution) ----------
-    # Hard gates remain safety rails. EDGE_SCORE then maps a candidate
-    # to quality tiers instead of binary accept/reject.
+    # ---- Continuous EDGE_SCORE (observability only, kept for logging) ---
     edge_score_core_min: float = Field(default=0.65, alias="EDGE_SCORE_CORE_MIN")
     edge_score_mid_min: float = Field(default=0.35, alias="EDGE_SCORE_MID_MIN")
     edge_score_low_min: float = Field(default=0.15, alias="EDGE_SCORE_LOW_MIN")
-    # Neutral items are penalised (not auto-dropped) so only strong
-    # measurable setups survive.
+    # Neutral items are penalised (not auto-dropped).
     neutral_noise_penalty: float = Field(default=0.30, alias="NEUTRAL_NOISE_PENALTY")
     edge_score_cost_penalty_mult: float = Field(
         default=1.0, alias="EDGE_SCORE_COST_PENALTY_MULT"
     )
-    # Per-tier daily caps to avoid low-tier overtrading.
+
+    # ---- Expected-Value estimator ----------------------------------------
+    # EV = P_edge_real × |net_edge_pct| − (1 − P_edge_real) × ev_loss_estimate
+    #
+    # P_edge_real is boosted from a conservative prior by z-score strength
+    # and matching context quality — both are measurable without historical
+    # ground truth, unlike winrate which requires closed trades.
+    #
+    # Tier thresholds (EV in % terms, same units as net_edge_pct):
+    #   core          EV ≥ EV_CORE_MIN  → strong, high-confidence play
+    #   mid           EV ≥ EV_OPP_MIN   → moderate positive EV (opportunistic)
+    #   low           EV > 0 + low-prob asymmetry (exploratory, tiny size)
+    #   reject        EV ≤ 0
+    ev_base_p: float = Field(default=0.50, alias="EV_BASE_P")
+    ev_z_boost_per_unit: float = Field(default=0.08, alias="EV_Z_BOOST_PER_UNIT")
+    ev_z_boost_max: float = Field(default=0.20, alias="EV_Z_BOOST_MAX")
+    ev_context_max_boost: float = Field(default=0.10, alias="EV_CONTEXT_MAX_BOOST")
+    # Estimated loss when the edge is noise (round-trip cost proxy, in %).
+    ev_loss_estimate_pct: float = Field(default=2.0, alias="EV_LOSS_ESTIMATE_PCT")
+    ev_core_min: float = Field(default=1.5, alias="EV_CORE_MIN")
+    ev_opp_min: float = Field(default=0.3, alias="EV_OPP_MIN")
+    # For exploratory plays (entry_price ≤ LOW_PROB_ENTRY_PRICE), the
+    # implied payout ratio must be at least this large to qualify.
+    ev_exploratory_payout_min: float = Field(
+        default=4.0, alias="EV_EXPLORATORY_PAYOUT_MIN"
+    )
+
+    # Per-tier daily caps.
     max_core_trades_per_day: int = Field(default=3, alias="MAX_CORE_TRADES_PER_DAY")
     max_mid_trades_per_day: int = Field(default=3, alias="MAX_MID_TRADES_PER_DAY")
     max_low_trades_per_day: int = Field(default=2, alias="MAX_LOW_TRADES_PER_DAY")

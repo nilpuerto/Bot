@@ -180,6 +180,7 @@ class PrymStrategy(BaseStrategy):
         user_override: Optional[float] = None,
         net_edge_pct: Optional[float] = None,
         abs_z: Optional[float] = None,
+        ev_tier: Optional[str] = None,
     ) -> SizingPlan:
         """Edge-first balance-% sizing.
 
@@ -216,6 +217,7 @@ class PrymStrategy(BaseStrategy):
             net_edge_pct=net_edge_pct,
             abs_z=abs_z,
             entry_price=entry_price,
+            ev_tier=ev_tier,
         )
 
         _ = stop_loss_enabled

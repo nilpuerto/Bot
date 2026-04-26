@@ -154,10 +154,32 @@ def test_news_pillar_contributes_zero() -> None:
     assert b.news == 0.0
 
 
-def test_edge_score_rejects_weak_context() -> None:
+def test_zero_context_reduces_ev_below_full_context() -> None:
+    """Context=0 reduces P_edge_real and therefore EV vs context=1.
+
+    Under the EV model, weak context is penalised but a strong z-score
+    can still yield a positive EV.  We only verify the monotonicity
+    property: more context → higher EV.
+    """
     scorer = SignalScoringSystem()
-    b = scorer.score(**_strong_kwargs(context_score=0.0, ai_confidence=50))
-    assert b.edge_score <= settings.edge_score_low_min
+    low = scorer.score(**_strong_kwargs(context_score=0.0, ai_confidence=50))
+    high = scorer.score(**_strong_kwargs(context_score=1.0, ai_confidence=80))
+    assert low.ev < high.ev
+
+
+def test_no_edge_with_zero_context_is_rejected() -> None:
+    """When net_edge is exactly at the floor AND context=0, EV should be <= 0."""
+    scorer = SignalScoringSystem()
+    b = scorer.score(
+        **_strong_kwargs(
+            context_score=0.0,
+            ai_confidence=50,
+            net_edge_pct=0.0,   # no edge at all
+            mispricing=_mispricing(z=-1.3),  # just above z_min
+        )
+    )
+    # EV must be negative when there is literally no net edge.
+    assert b.ev <= 0.0
     assert b.tier == "reject"
     assert b.passes_trade is False
 

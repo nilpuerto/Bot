@@ -44,6 +44,34 @@ from app.config.settings import settings
 Band = Literal["low_prob", "low", "mid", "high"]
 
 
+def tier_from_ev(ev_tier: str, entry_price: Optional[float] = None) -> Band:
+    """EV-driven band selection.
+
+    Maps the EV estimator's quality tier to a sizing band:
+      core         → high  (strong edge, full stake)
+      mid          → mid   (opportunistic, moderate stake)
+      low          → low_prob (exploratory asymmetric, tiny stake)
+      reject / any → low   (safety fallback — should not reach here in AUTO)
+
+    Low-probability entries are always floored at ``low_prob`` regardless of
+    the EV tier so that asymmetric setups never accidentally receive full
+    sizing even when they show a mathematically strong EV.
+    """
+    if (
+        entry_price is not None
+        and entry_price > 0.0
+        and entry_price <= settings.low_prob_entry_price
+    ):
+        return "low_prob"
+    if ev_tier == "core":
+        return "high"
+    if ev_tier == "mid":
+        return "mid"
+    if ev_tier == "low":
+        return "low_prob"
+    return "low"
+
+
 @dataclass
 class SizingQuote:
     amount_usd: float
@@ -177,19 +205,22 @@ def compute_sizing(
     net_edge_pct: Optional[float] = None,
     abs_z: Optional[float] = None,
     entry_price: Optional[float] = None,
+    ev_tier: Optional[str] = None,
 ) -> SizingQuote:
     """Build a :class:`SizingQuote` given the user context.
 
-    Band selection is **measurable-first**: when ``net_edge_pct`` is
-    provided (optionally with ``abs_z``), :func:`tier_from_edge` picks
-    the band — the driver the edge-first refactor prefers.  When only a
-    ``score`` is provided, the legacy :func:`band_for_score` picks it.
+    Band selection priority (highest wins):
+      1. ``ev_tier`` — EV estimator tier (core/mid/low/reject) → preferred.
+      2. ``net_edge_pct`` + ``abs_z`` → legacy measurable tier.
+      3. ``score`` (0..100) → back-compat legacy fallback.
 
     Sizing = **band% × balance**.  ``risk_pct`` acts as a user-level
     ceiling on the effective percentage (never widens it).  Absolute
     USD floor/ceiling still apply as last-resort guard-rails.
     """
-    if net_edge_pct is not None:
+    if ev_tier is not None and ev_tier != "reject":
+        band = tier_from_ev(ev_tier, entry_price)
+    elif net_edge_pct is not None:
         band = tier_from_edge(net_edge_pct, abs_z, entry_price)
     else:
         band = band_for_score(score if score is not None else 0.0)

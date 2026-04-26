@@ -58,6 +58,7 @@ from typing import Literal, Mapping, Optional
 from app.config.settings import settings
 from app.integrations.mistral_client import AIAnalysis
 from app.integrations.polymarket_client import MarketSnapshot
+from app.services.ev_estimator import EVResult, compute_ev
 from app.services.microstructure import MicrostructureFeatures
 from app.services.mispricing import MispricingResult
 from app.services.timing import TimingDecision
@@ -95,9 +96,13 @@ class ScoreBreakdown:
 
     # Why the hard-gate cluster passed/failed.  Populated for observability.
     gate_reason: str = ""
-    # Continuous score + tier bucket.
+    # Continuous edge_score (observability) + EV-driven tier.
     edge_score: float = 0.0
     tier: Literal["core", "mid", "low", "reject"] = "reject"
+    # EV estimator output — the primary trade-gate after hard gates.
+    ev: float = 0.0
+    ev_p_real: float = 0.0
+    ev_is_exploratory: bool = False
     # Additional observability fields for the continuous model.
     context: float = 0.0
     confidence: float = 0.0
@@ -295,16 +300,19 @@ class SignalScoringSystem:
             - noise_penalty
         )
         edge_score = round(float(edge_score), 4)
-        if edge_score >= float(settings.edge_score_core_min):
-            tier: Literal["core", "mid", "low", "reject"] = "core"
-        elif edge_score >= float(settings.edge_score_mid_min):
-            tier = "mid"
-        elif edge_score >= float(settings.edge_score_low_min):
-            tier = "low"
-        else:
-            tier = "reject"
-        # Alerts and trades share the same gate — we do not surface
-        # signals that would never clear the cost model.
+
+        # ---- EV estimator (primary tier + trade gate) --------------------
+        ev_result: EVResult = compute_ev(
+            net_edge_pct=net_edge_pct,
+            abs_z=abs_z,
+            context_score=context_mult,
+            entry_price=entry_price,
+        )
+        tier: Literal["core", "mid", "low", "reject"] = ev_result.tier
+
+        # Alerts and trades share the same gate.
+        # Hard gates filter execution quality; EV gate ensures
+        # there is actual expected value before placing an order.
         passes_alert = hard_gate and tier != "reject"
         passes_trade = hard_gate and tier != "reject"
         # High confidence = mispricing pillar firing well AND strong
@@ -369,6 +377,12 @@ class SignalScoringSystem:
             "tier": tier,
             "cost_penalty": round(cost_penalty, 4),
             "noise_penalty": round(noise_penalty, 4),
+            "ev": ev_result.ev,
+            "ev_p_real": ev_result.p_edge_real,
+            "ev_z_boost": ev_result.z_boost,
+            "ev_ctx_boost": ev_result.context_boost,
+            "ev_payout_ratio": ev_result.payout_ratio,
+            "ev_is_exploratory": ev_result.is_exploratory,
         }
 
         return ScoreBreakdown(
@@ -388,6 +402,9 @@ class SignalScoringSystem:
             gate_reason=gate_reason,
             edge_score=edge_score,
             tier=tier,
+            ev=ev_result.ev,
+            ev_p_real=ev_result.p_edge_real,
+            ev_is_exploratory=ev_result.is_exploratory,
             context=round(context_mult, 4),
             confidence=round(confidence_mult, 4),
             cost_penalty=round(cost_penalty, 4),

@@ -521,6 +521,8 @@ class Orchestrator:
                 reason=score.gate_reason,
                 tier=score.tier,
                 edge_score=score.edge_score,
+                ev=score.ev,
+                ev_p_real=score.ev_p_real,
                 abs_z=abs_z,
                 net_edge=cost.net_edge_pct,
                 net_edge_adjusted=adjusted_edge,
@@ -733,6 +735,7 @@ class Orchestrator:
                 score=float(score.total),
                 net_edge_pct=net_edge_pct,
                 abs_z=abs_z,
+                ev_tier=score.tier,
             )
             assert self._executor is not None
             result = await self._executor.open_trade(
@@ -1004,6 +1007,8 @@ class Orchestrator:
                 reason=score.gate_reason,
                 tier=score.tier,
                 edge_score=score.edge_score,
+                ev=score.ev,
+                ev_p_real=score.ev_p_real,
                 abs_z=abs_z,
                 net_edge=cost.net_edge_pct,
                 net_edge_adjusted=adjusted_edge,

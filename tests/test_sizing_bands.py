@@ -2,7 +2,13 @@
 from __future__ import annotations
 
 from app.config.settings import settings
-from app.services.sizing import band_bounds, band_for_score, band_pct, compute_sizing
+from app.services.sizing import (
+    band_bounds,
+    band_for_score,
+    band_pct,
+    compute_sizing,
+    tier_from_ev,
+)
 
 
 def test_low_band_for_low_score() -> None:
@@ -164,3 +170,43 @@ def test_normal_price_does_not_trigger_low_prob() -> None:
         entry_price=settings.low_prob_entry_price + 0.05,
     )
     assert band == "high"
+
+
+# ---- EV-driven band (tier_from_ev) ----------------------------------------
+
+def test_ev_core_maps_to_high_band() -> None:
+    band = tier_from_ev("core", entry_price=0.30)
+    assert band == "high"
+
+
+def test_ev_mid_maps_to_mid_band() -> None:
+    band = tier_from_ev("mid", entry_price=0.30)
+    assert band == "mid"
+
+
+def test_ev_low_maps_to_low_prob_band() -> None:
+    """Exploratory tier (EV tier 'low') always commits the tiny low_prob band."""
+    band = tier_from_ev("low", entry_price=0.30)
+    assert band == "low_prob"
+
+
+def test_ev_low_prob_price_overrides_core_tier() -> None:
+    """Even a 'core' EV tier is capped to low_prob when entry_price is tiny."""
+    low_price = settings.low_prob_entry_price - 0.01
+    band = tier_from_ev("core", entry_price=low_price)
+    assert band == "low_prob"
+
+
+def test_compute_sizing_uses_ev_tier_over_net_edge() -> None:
+    """When ev_tier is provided, it overrides the net_edge/z-based tier."""
+    balance = 500.0
+    # net_edge + z would give "mid", but ev_tier says "core" → high band.
+    q = compute_sizing(
+        balance=balance,
+        risk_pct=settings.band_high_pct,
+        net_edge_pct=4.0,
+        abs_z=2.1,
+        entry_price=0.30,
+        ev_tier="core",
+    )
+    assert q.band == "high"
