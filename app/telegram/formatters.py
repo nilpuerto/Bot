@@ -192,8 +192,13 @@ def portfolio_card(snapshot: PortfolioSnapshot) -> str:
             f"▸ *Liquid USDC*   `${escape_md(f'{usdc:,.2f}')}` "
             "\\(on\\-chain, auto\\)"
         )
+    elif snapshot.balance_status == "simulation":
+        usdc_line = "▸ *Liquid USDC*   `—` \\(simulation mode\\)"
     else:
-        usdc_line = "▸ *Liquid USDC*   `—` \\(sim mode or not connected\\)"
+        usdc_line = (
+            "▸ *Liquid USDC*   `—` "
+            "\\(live mode but balance unavailable: check wallet/funder/RPC\\)"
+        )
 
     cap_line = (
         f"▸ *Your cap*      `${escape_md(f'{cap:,.2f}')}` \\(manual ceiling\\)"

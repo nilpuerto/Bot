@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
+from app.config.settings import settings
 from app.database.models import Trade, User
 from app.database.repositories.trades_repo import TradesRepository
 from app.database.session import session_scope
@@ -42,6 +43,8 @@ class PortfolioSnapshot:
     effective_balance: Decimal
     # Sum of open-trade notionals managed by this bot.
     in_bot_positions_usd: Decimal
+    # "ok" | "simulation" | "unavailable"
+    balance_status: str
     total_pnl: Decimal
     winrate_pct: float
     open_trades: int
@@ -63,13 +66,21 @@ class PortfolioService:
         value — used by unit tests that do not wire the live provider.
         """
         configured_cap = Decimal(user.balance or 0)
+        balance_status = "ok"
         if balance_provider is not None:
             breakdown = await balance_provider.effective_balance(user)
             usdc_available = breakdown.liquid_usdc
             effective_balance = breakdown.effective
+            if settings.simulation_mode:
+                balance_status = "simulation"
+            elif usdc_available <= 0:
+                # Live mode but we could not fetch / resolve a positive
+                # on-chain balance (RPC, wallet/funder config, or empty wallet).
+                balance_status = "unavailable"
         else:
             usdc_available = Decimal("0")
             effective_balance = configured_cap
+            balance_status = "simulation" if settings.simulation_mode else "unavailable"
 
         async with session_scope() as session:
             repo = TradesRepository(session)
@@ -89,6 +100,7 @@ class PortfolioService:
             usdc_available=usdc_available,
             effective_balance=effective_balance,
             in_bot_positions_usd=in_bot_positions_usd,
+            balance_status=balance_status,
             total_pnl=total_pnl,
             winrate_pct=winrate,
             open_trades=open_count,

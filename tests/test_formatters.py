@@ -60,6 +60,7 @@ def test_portfolio_card_renders() -> None:
         usdc_available=Decimal("60.00"),
         effective_balance=Decimal("60.00"),
         in_bot_positions_usd=Decimal("340.00"),
+        balance_status="ok",
         total_pnl=Decimal("25.50"),
         winrate_pct=66.6,
         open_trades=2,
@@ -82,6 +83,7 @@ def test_portfolio_card_no_cap_shows_auto() -> None:
         usdc_available=Decimal("60.00"),
         effective_balance=Decimal("60.00"),
         in_bot_positions_usd=Decimal("0"),
+        balance_status="ok",
         total_pnl=Decimal("0"),
         winrate_pct=0.0,
         open_trades=0,
@@ -91,6 +93,40 @@ def test_portfolio_card_no_cap_shows_auto() -> None:
     text = portfolio_card(snap)
     assert "none" in text  # "Your cap   none (uses full liquid USDC)"
     assert "AUTO" in text
+
+
+def test_portfolio_card_live_unavailable_balance_message() -> None:
+    snap = PortfolioSnapshot(
+        configured_cap=Decimal("0"),
+        usdc_available=Decimal("0"),
+        effective_balance=Decimal("0"),
+        in_bot_positions_usd=Decimal("0"),
+        balance_status="unavailable",
+        total_pnl=Decimal("0"),
+        winrate_pct=0.0,
+        open_trades=0,
+        trades_today=0,
+        mode="auto",
+    )
+    text = portfolio_card(snap)
+    assert "live mode but balance unavailable" in text
+
+
+def test_portfolio_card_simulation_balance_message() -> None:
+    snap = PortfolioSnapshot(
+        configured_cap=Decimal("100"),
+        usdc_available=Decimal("0"),
+        effective_balance=Decimal("100"),
+        in_bot_positions_usd=Decimal("0"),
+        balance_status="simulation",
+        total_pnl=Decimal("0"),
+        winrate_pct=0.0,
+        open_trades=0,
+        trades_today=0,
+        mode="safe",
+    )
+    text = portfolio_card(snap)
+    assert "simulation mode" in text
 
 
 def test_trades_list_empty_and_filled() -> None:
