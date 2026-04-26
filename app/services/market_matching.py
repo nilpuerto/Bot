@@ -21,8 +21,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
+from app.config.settings import settings
 from app.integrations.polymarket_client import MarketSnapshot, PolymarketClient
 from app.services.market_universe import MarketUniverseService
+from app.services.match_gates import (
+    categories_compatible,
+    infer_market_topic,
+    normalize_entities,
+    passes_entity_gate,
+)
 from app.utils.logger import get_logger
 from app.utils.text import normalize
 
@@ -42,12 +49,18 @@ class MarketMatchingService:
     def __init__(
         self,
         polymarket: PolymarketClient,
-        min_confidence: float = 0.20,
+        min_confidence: Optional[float] = None,
         search_limit: int = 12,
         universe: Optional[MarketUniverseService] = None,
     ) -> None:
         self._poly = polymarket
-        self._min_confidence = min_confidence
+        # When unspecified, defer to the global setting so operators can
+        # tune the floor via env without code changes.
+        self._min_confidence = (
+            float(min_confidence)
+            if min_confidence is not None
+            else float(settings.match_min_confidence)
+        )
         self._search_limit = search_limit
         self._universe = universe
 
@@ -114,44 +127,75 @@ class MarketMatchingService:
             return None
 
         ref_tokens = _tokens(f"{ai_market_hint or ''} {news_title}")
-        ent_norms = {_norm_entity(e) for e in (entities or []) if e}
-        ent_norms.discard("")
+        ent_norms = normalize_entities(entities)
+        has_entities = bool(ent_norms)
+
+        require_ent = bool(settings.match_require_entity_hit)
+        no_ent_jaccard = float(settings.match_no_entity_jaccard_min)
+        topic_gate = bool(settings.match_enforce_topic_gate)
+
         ranked: list[tuple[float, int, MarketSnapshot]] = []
+        gated_out = 0
         for market in candidates:
             market_norm = normalize(market.question)
             market_tokens = _tokens(market.question)
             jaccard = _jaccard(ref_tokens, market_tokens)
-
             entity_hits = sum(1 for e in ent_norms if e in market_norm)
-            entity_bonus = min(0.40, 0.15 * entity_hits)
 
+            # Hard gate 1 — topic compatibility (sports news must not
+            # route to crypto markets etc.).
+            if topic_gate and category:
+                market_topic = infer_market_topic(market.question)
+                if market_topic and not categories_compatible(category, market_topic):
+                    gated_out += 1
+                    continue
+
+            # Hard gate 2 — entity gate (or fallback Jaccard floor when
+            # no entities were extracted from the news).
+            if not passes_entity_gate(
+                entity_hits=entity_hits,
+                has_entities=has_entities,
+                jaccard=jaccard,
+                no_entity_jaccard_min=no_ent_jaccard,
+                require_entity_hit=require_ent,
+            ):
+                gated_out += 1
+                continue
+
+            # Legacy stopword sanity (cheap blacklist) on top of the
+            # topic gate — kept because it catches obvious nonsense
+            # like "iphone" appearing in a "political" candidate that
+            # the topic detector classified as "other".
+            if category and _looks_like_mismatch(category, market):
+                gated_out += 1
+                continue
+
+            entity_bonus = min(0.40, 0.15 * entity_hits)
             volume_bonus = 0.05 if market.volume_24h > 1000 else 0.0
             liquidity_bonus = 0.05 if market.liquidity > 5000 else 0.0
-            # Mild preference for binary markets (len(outcomes) == 2).
             binary_bonus = 0.02 if len(market.outcomes) == 2 else 0.0
 
             score = jaccard + entity_bonus + volume_bonus + liquidity_bonus + binary_bonus
             ranked.append((score, entity_hits, market))
 
-        ranked.sort(key=lambda r: (r[0], r[1], r[2].volume_24h), reverse=True)
-        best_score, best_entity_hits, best_market = ranked[0]
-
-        # Category sanity check — if the AI said "economic" but the only
-        # match is a sports market, bail out.  We only enforce when a
-        # crude mismatch is obvious to avoid over-filtering.
-        if category and _looks_like_mismatch(category, best_market):
+        if not ranked:
             logger.info(
-                "market_match_category_mismatch",
+                "market_match_all_gated",
+                query=query,
                 category=category,
-                question=best_market.question,
+                candidates=len(candidates),
+                gated_out=gated_out,
             )
             return None
+
+        ranked.sort(key=lambda r: (r[0], r[1], r[2].volume_24h), reverse=True)
+        best_score, best_entity_hits, best_market = ranked[0]
 
         if best_score < self._min_confidence:
             logger.info(
                 "market_match_low_confidence",
                 query=query,
-                best_score=best_score,
+                best_score=round(best_score, 3),
                 best_question=best_market.question,
             )
             return None
@@ -207,7 +251,3 @@ def _jaccard(a: set[str], b: set[str]) -> float:
     inter = a & b
     union = a | b
     return len(inter) / len(union)
-
-
-def _norm_entity(entity: str) -> str:
-    return normalize(entity).strip()

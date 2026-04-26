@@ -252,6 +252,10 @@ following keys in the Render dashboard if you want the new behaviour:
 | `MARKET_UNIVERSE_ENABLED`        | `true` | Polymarket-first matching (in-memory)              |
 | `MARKET_UNIVERSE_SIZE`           | `300`  | Top markets by 24-h volume cached locally          |
 | `MARKET_UNIVERSE_REFRESH_SECONDS`| `90`   | Catch newly-listed markets within ~1-2 min         |
+| `MATCH_MIN_CONFIDENCE`           | `0.30` | Final score floor for the best candidate           |
+| `MATCH_REQUIRE_ENTITY_HIT`       | `true` | Demand ≥1 entity in the market question            |
+| `MATCH_NO_ENTITY_JACCARD_MIN`    | `0.30` | Fallback Jaccard floor when news has no entities   |
+| `MATCH_ENFORCE_TOPIC_GATE`       | `true` | Reject sports-news → crypto-market and friends     |
 | `PENDING_NEWS_ENABLED`           | `true` | Keep retrying news whose market isn't listed yet   |
 | `PENDING_NEWS_TTL_SECONDS`       | `900`  | How long a pending headline stays retryable        |
 | `PENDING_NEWS_RETRY_INTERVAL_SECONDS` | `60` | How often the retry loop re-tries the queue   |
@@ -283,6 +287,35 @@ the top-N still get a chance.
 Operationally this means: **logs that previously read
 `market=None`-everywhere now resolve to real `market_id`s**, and most
 trades come from `market_matched via=universe` rather than `via=search`.
+
+### Hard match gates — "no trade is better than a wrong trade"
+
+A token-overlap matcher will happily route *Assefa wins the London
+Marathon* to *Will USA win the 2026 FIFA World Cup?* because both share
+the word **win**.  In production this produced matches with
+`confidence=0.238` and would have entered trades on markets that have
+zero causal connection to the news.
+
+`app/services/match_gates.py` adds three deterministic vetoes that run
+**before** any ranking math, in both the in-memory universe path and
+the Gamma search-fallback path:
+
+1. **Entity gate** — when the AI extracted entities from the news, at
+   least one of them must appear verbatim in the candidate market's
+   question.  Marathon news with entities `[Assefa, London Marathon]`
+   never matches a World Cup market because none of those tokens
+   appear there.
+2. **Topic gate** — every market is classified by keyword scan into
+   `sports / crypto / political / economic / geopolitical / climate`
+   and matched against a compatibility table.  Crypto news can never
+   route to an NBA market, sports never to elections, etc.  Related
+   pairs (politics ↔ macro ↔ geopolitical) remain compatible.
+3. **No-entity Jaccard floor** — when the AI couldn't extract any
+   entity, a stricter Jaccard threshold on tokens replaces the entity
+   gate so generic headlines don't route anywhere.
+
+Tunable via `MATCH_MIN_CONFIDENCE`, `MATCH_REQUIRE_ENTITY_HIT`,
+`MATCH_NO_ENTITY_JACCARD_MIN`, `MATCH_ENFORCE_TOPIC_GATE`.
 
 ### Pending-news retry — never drop a fresh headline early
 

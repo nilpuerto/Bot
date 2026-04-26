@@ -44,6 +44,8 @@ async def test_picks_best_token_overlap() -> None:
     match = await svc.find(
         ai_market_hint="Trump wins election",
         news_title="Trump leads in key swing state election",
+        entities=["Trump"],
+        category="political",
     )
     assert match is not None
     assert match.market.id == "b"
@@ -53,5 +55,10 @@ async def test_picks_best_token_overlap() -> None:
 async def test_returns_none_below_threshold() -> None:
     poly: Any = _FakePoly([_m("z", "Completely unrelated topic about basketball")])
     svc = MarketMatchingService(poly, min_confidence=0.9)
-    match = await svc.find(ai_market_hint="war ceasefire announced", news_title="war ceasefire")
+    match = await svc.find(
+        ai_market_hint="war ceasefire announced",
+        news_title="war ceasefire",
+        entities=["ceasefire"],
+        category="geopolitical",
+    )
     assert match is None

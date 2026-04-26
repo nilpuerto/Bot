@@ -33,6 +33,12 @@ from typing import Awaitable, Callable, Iterable, Optional
 
 from app.config.settings import settings
 from app.integrations.polymarket_client import MarketSnapshot, PolymarketClient
+from app.services.match_gates import (
+    categories_compatible,
+    infer_market_topic,
+    normalize_entities,
+    passes_entity_gate,
+)
 from app.utils.logger import get_logger
 from app.utils.text import normalize
 
@@ -217,22 +223,54 @@ class MarketUniverseService:
         news_title: str,
         entities: Optional[Iterable[str]] = None,
         category: Optional[str] = None,
-        min_score: float = 0.20,
+        min_score: Optional[float] = None,
+        require_entity_hit: Optional[bool] = None,
+        no_entity_jaccard_min: Optional[float] = None,
+        enforce_topic_gate: Optional[bool] = None,
     ) -> Optional[UniverseMatch]:
         """Best in-memory match for the given news context.
 
-        Mirrors :class:`MarketMatchingService.find` ranking math but
-        runs against the cached universe, so it costs O(|universe|)
-        Python operations and zero HTTP calls.
+        Applies three deterministic gates *before* ranking:
 
-        Returns ``None`` if no candidate clears ``min_score``.
+        1. **Topic gate** — the candidate market's inferred topic
+           (sports/crypto/political/etc.) must be compatible with the
+           AI's news category.
+        2. **Entity gate** — when the news has entities, at least one
+           must appear in the market question; otherwise we fall back
+           to a stricter Jaccard floor on tokens.
+        3. **Final score floor** — the surviving best must clear
+           ``min_score`` (defaults to ``settings.match_min_confidence``).
+
+        Returns ``None`` if no candidate survives all three gates.
         """
         if not self._markets:
             return None
 
+        # Resolve gate parameters from settings when not overridden.
+        score_floor = (
+            float(min_score)
+            if min_score is not None
+            else float(settings.match_min_confidence)
+        )
+        require_ent = (
+            bool(require_entity_hit)
+            if require_entity_hit is not None
+            else bool(settings.match_require_entity_hit)
+        )
+        no_ent_jaccard = (
+            float(no_entity_jaccard_min)
+            if no_entity_jaccard_min is not None
+            else float(settings.match_no_entity_jaccard_min)
+        )
+        topic_gate = (
+            bool(enforce_topic_gate)
+            if enforce_topic_gate is not None
+            else bool(settings.match_enforce_topic_gate)
+        )
+
         ref_tokens = _tokens(f"{ai_market_hint or ''} {news_title}")
-        ent_norms = {_norm_entity(e) for e in (entities or []) if e}
-        ent_norms.discard("")
+        ent_norms = normalize_entities(entities)
+        has_entities = bool(ent_norms)
 
         ranked: list[UniverseMatch] = []
         for market in self._markets:
@@ -241,8 +279,28 @@ class MarketUniverseService:
 
             jaccard = _jaccard(ref_tokens, market_tokens)
             entity_hits = sum(1 for e in ent_norms if e and e in market_norm)
-            entity_bonus = min(0.40, 0.15 * entity_hits)
 
+            # Hard gate 1: topic compatibility (e.g. don't route a
+            # sports headline to a crypto market).  When the topic
+            # detector can't classify the market, this gate no-ops.
+            if topic_gate and category:
+                market_topic = infer_market_topic(market.question)
+                if market_topic and not categories_compatible(category, market_topic):
+                    continue
+
+            # Hard gate 2: entity gate.  When the AI gave us entities,
+            # at least one must appear in the question; otherwise fall
+            # back to a stricter token-overlap floor.
+            if not passes_entity_gate(
+                entity_hits=entity_hits,
+                has_entities=has_entities,
+                jaccard=jaccard,
+                no_entity_jaccard_min=no_ent_jaccard,
+                require_entity_hit=require_ent,
+            ):
+                continue
+
+            entity_bonus = min(0.40, 0.15 * entity_hits)
             volume_bonus = 0.05 if (market.volume_24h or 0) > 1000 else 0.0
             liquidity_bonus = 0.05 if (market.liquidity or 0) > 5000 else 0.0
             binary_bonus = 0.02 if len(market.outcomes) == 2 else 0.0
@@ -255,13 +313,10 @@ class MarketUniverseService:
                 + binary_bonus
             )
 
-            # Cheap category sanity — reuse the same stopwords table as
-            # the API matcher to keep the two ranking paths consistent.
+            # Legacy cheap-stopword sanity — keeps the older negative
+            # signals (e.g. "nba" inside an "economic" candidate) even
+            # when the topic detector says they're compatible.
             if category and _looks_like_category_mismatch(category, market_norm):
-                continue
-
-            if entity_hits == 0 and jaccard <= 0.0:
-                # No textual or entity overlap at all — pure noise.
                 continue
 
             ranked.append(UniverseMatch(market, score, entity_hits))
@@ -274,7 +329,7 @@ class MarketUniverseService:
             reverse=True,
         )
         best = ranked[0]
-        if best.score < min_score:
+        if best.score < score_floor:
             return None
         return best
 

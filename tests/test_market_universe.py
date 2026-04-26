@@ -185,6 +185,116 @@ def test_top_questions_returns_in_order() -> None:
 
 
 @pytest.mark.asyncio
+async def test_find_match_rejects_marathon_news_against_world_cup_market() -> None:
+    """Regression: 'Assefa wins London Marathon' MUST NOT match
+    'Will USA win the 2026 FIFA World Cup?'.
+
+    Both share the token "win" and both are sports, so the legacy
+    matcher would route them together with confidence ~0.24.  The
+    entity gate fixes it: the news entities (Assefa, London Marathon)
+    appear nowhere in the market question, so the candidate is
+    vetoed before scoring.
+    """
+    poly: Any = _FakePoly(
+        [
+            _m(
+                "wc",
+                "Will USA win the 2026 FIFA World Cup?",
+                volume=100_000,
+                liquidity=50_000,
+            ),
+        ]
+    )
+    svc = MarketUniverseService(poly, size=10, refresh_seconds=60)
+    await svc.refresh()
+
+    hit = svc.find_match(
+        ai_market_hint="London Marathon Women's Winner",
+        news_title="Assefa wins London Marathon women's race in record time",
+        entities=["Assefa", "London Marathon"],
+        category="sports",
+    )
+    assert hit is None
+
+
+@pytest.mark.asyncio
+async def test_find_match_rejects_crypto_news_against_sports_market() -> None:
+    """Topic gate: a Bitcoin headline must not route to an NBA market."""
+    poly: Any = _FakePoly(
+        [
+            _m(
+                "nba",
+                "Will the Lakers win the 2026 NBA Finals?",
+                volume=50_000,
+                liquidity=20_000,
+            ),
+        ]
+    )
+    svc = MarketUniverseService(poly, size=10, refresh_seconds=60)
+    await svc.refresh()
+
+    hit = svc.find_match(
+        ai_market_hint="Bitcoin price",
+        news_title="Bitcoin tumbles below 60k as ETF outflows hit record",
+        entities=["Bitcoin", "ETF"],
+        category="crypto",
+    )
+    assert hit is None
+
+
+@pytest.mark.asyncio
+async def test_find_match_no_entity_news_requires_strong_jaccard() -> None:
+    """When the AI couldn't extract entities, fall back to a Jaccard
+    floor — generic headlines with weak overlap must NOT match."""
+    poly: Any = _FakePoly(
+        [
+            _m(
+                "infl",
+                "Will US inflation be above 3% in May?",
+                volume=50_000,
+                liquidity=20_000,
+            ),
+        ]
+    )
+    svc = MarketUniverseService(poly, size=10, refresh_seconds=60)
+    await svc.refresh()
+
+    hit = svc.find_match(
+        ai_market_hint=None,
+        news_title="Markets opened higher on Tuesday morning",
+        entities=[],
+        category="economic",
+    )
+    assert hit is None
+
+
+@pytest.mark.asyncio
+async def test_search_path_applies_entity_gate() -> None:
+    """The Gamma-search fallback path must apply the same gates as
+    the universe path.  Otherwise garbage matches just leak through
+    a different door."""
+    universe = [_m("rain", "Will it rain in Paris?", volume=2_000)]
+    # Search returns a sports market that has no entity overlap with
+    # the news — the gate must veto it.
+    search_only = [
+        _m("wc", "Will USA win the 2026 FIFA World Cup?", volume=100_000),
+    ]
+    poly: Any = _FakePoly(universe, search=search_only)
+
+    svc = MarketUniverseService(poly, size=10, refresh_seconds=60)
+    await svc.refresh()
+
+    matcher = MarketMatchingService(poly, universe=svc)
+    match = await matcher.find(
+        ai_market_hint="London Marathon Women's Winner",
+        news_title="Assefa wins London Marathon women's race",
+        entities=["Assefa", "London Marathon"],
+        category="sports",
+    )
+    assert match is None
+
+
+@pytest.mark.asyncio
 async def test_refresh_detects_new_listings_and_fires_callback() -> None:
     poly: Any = _FakePoly([_m("a", "Will Bitcoin hit 100k?", volume=10_000)])
     callback_payloads: list[list[Any]] = []

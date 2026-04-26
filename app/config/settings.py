@@ -393,6 +393,39 @@ class Settings(BaseSettings):
         default=90, alias="MARKET_UNIVERSE_REFRESH_SECONDS"
     )
 
+    # ---- News→market matching gates ------------------------------------
+    # Three deterministic vetoes the matcher applies BEFORE any ranking
+    # math (see app/services/match_gates.py for the rationale).  These
+    # exist because a pure token-overlap ranker happily matches
+    # "Assefa wins the London Marathon" → "Will USA win the 2026 FIFA
+    # World Cup?" (both share the token "win"), which is a guaranteed
+    # money-loser.
+    #
+    # MATCH_MIN_CONFIDENCE — final score floor for the best candidate
+    # AFTER the hard gates have filtered the list.  0.30 is the sweet
+    # spot we landed on: high enough to drop garbage, low enough to
+    # preserve the long tail of borderline-but-real matches.
+    match_min_confidence: float = Field(default=0.30, alias="MATCH_MIN_CONFIDENCE")
+    # When true, a candidate market MUST contain at least one of the
+    # AI-extracted entities to be eligible.  Set to false to recover
+    # the legacy "loose" behaviour for debugging.
+    match_require_entity_hit: bool = Field(
+        default=True, alias="MATCH_REQUIRE_ENTITY_HIT"
+    )
+    # Jaccard floor when the AI gave us NO entities — without this the
+    # matcher would route generic headlines ("breaking: market drops")
+    # to almost any candidate.
+    match_no_entity_jaccard_min: float = Field(
+        default=0.30, alias="MATCH_NO_ENTITY_JACCARD_MIN"
+    )
+    # When true, the matcher infers a topic for each candidate market
+    # (sports / crypto / political / economic / geopolitical / climate)
+    # and rejects candidates whose topic is incompatible with the
+    # AI-classified news category.
+    match_enforce_topic_gate: bool = Field(
+        default=True, alias="MATCH_ENFORCE_TOPIC_GATE"
+    )
+
     # ---- Pending-news retry --------------------------------------------
     # When AI tags a news item as relevant but Polymarket hasn't listed
     # the matching market YET (very common in the first 0-3 minutes of
