@@ -95,13 +95,17 @@ def compute_ev(
     price = max(0.01, min(0.99, price))
     payout_ratio = (1.0 - price) / price
 
-    # --- Exploratory: tiny price + high asymmetry + EV positive ----------
+    # --- Exploratory: tiny price + high asymmetry + EV above floor -------
+    # EV_EXPLORATORY_MIN_EV defaults to 0 but can be set negative to allow
+    # a small model-error budget for extreme lottery-ticket setups where
+    # the payout asymmetry (≥ 4x) justifies entry despite a pessimistic EV.
+    exploratory_ev_floor = float(settings.ev_exploratory_min_ev)
     is_exploratory = (
         entry_price is not None
         and entry_price > 0.0
         and entry_price <= float(settings.low_prob_entry_price)
         and payout_ratio >= float(settings.ev_exploratory_payout_min)
-        and ev > 0.0
+        and ev > exploratory_ev_floor
     )
 
     # --- Tier decision ----------------------------------------------------

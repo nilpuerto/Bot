@@ -27,6 +27,7 @@ from app.services.market_universe import MarketUniverseService
 from app.services.match_gates import (
     categories_compatible,
     clusters_compatible,
+    count_entity_hits,
     infer_market_cluster,
     infer_market_topic,
     infer_news_cluster,
@@ -147,7 +148,7 @@ class MarketMatchingService:
             market_norm = normalize(market.question)
             market_tokens = _tokens(market.question)
             jaccard = _jaccard(ref_tokens, market_tokens)
-            entity_hits = sum(1 for e in ent_norms if e in market_norm)
+            entity_hits = count_entity_hits(ent_norms, market_norm)
 
             # Hard gate 1 — topic compatibility (sports news must not
             # route to crypto markets etc.).

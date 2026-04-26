@@ -318,3 +318,32 @@ def passes_entity_gate(
 
 def normalize_entities(entities: Optional[Iterable[str]]) -> set[str]:
     return {normalize(e).strip() for e in (entities or []) if e and e.strip()}
+
+
+def count_entity_hits(ent_norms: set[str], market_norm: str) -> int:
+    """Count how many extracted entities are anchored in the market question.
+
+    Uses two-tier matching to handle the common case where the AI extracts
+    a full name ("Cleveland Cavaliers") while the market question uses a
+    short form ("Cavaliers"):
+
+    1. Full-string substring match — exact, highest quality.
+    2. Partial-token match — any *significant* token (≥ 4 chars) from the
+       entity appears in the market question.  Rejects noise tokens like
+       "the", "and", "of" which would otherwise cause spurious hits.
+
+    Each entity contributes at most 1 hit regardless of how many of its
+    tokens match (avoids inflating the count for long entity names).
+    """
+    hits = 0
+    for e in ent_norms:
+        if not e:
+            continue
+        if e in market_norm:
+            hits += 1
+        else:
+            # Partial: any meaningful token (≥ 4 chars) of the entity
+            tokens = {t for t in e.split() if len(t) >= 4}
+            if any(t in market_norm for t in tokens):
+                hits += 1
+    return hits

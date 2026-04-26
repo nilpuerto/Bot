@@ -67,20 +67,20 @@ def test_exploratory_low_price_thin_ev_is_low_tier() -> None:
 
     With the recalibrated EV_OPP_MIN=0.05, an exploratory signal only lands
     in the "low" tier when EV is between 0 and 0.05.  That requires a
-    combination of a wafer-thin net_edge (~1.3%) with near-zero z+context
+    combination of a wafer-thin net_edge (~1.23%) with near-zero z+context
     boost so P_edge_real stays close to BASE_P=0.55.
 
-    EV ≈ 0.55×1.27 − 0.45×1.5 ≈ 0.023  (between 0 and EV_OPP_MIN=0.05).
+    EV ≈ 0.55×1.23 − 0.45×1.5 ≈ 0.0015  (between EV_EXPLORATORY_MIN_EV and EV_OPP_MIN=0.01).
     """
     low_price = float(settings.low_prob_entry_price) - 0.01
     r = compute_ev(
-        net_edge_pct=1.27,  # thin enough for EV in (0, EV_OPP_MIN)
+        net_edge_pct=1.23,  # thin enough for EV in (exploratory_floor, EV_OPP_MIN)
         abs_z=0.0,          # no z boost → p stays near BASE_P
         context_score=0.0,  # no context boost
         entry_price=low_price,
     )
     assert r.payout_ratio >= float(settings.ev_exploratory_payout_min)
-    assert r.ev > 0.0
+    assert r.ev > float(settings.ev_exploratory_min_ev)
     assert r.ev < float(settings.ev_opp_min)
     assert r.is_exploratory is True
     assert r.tier == "low"

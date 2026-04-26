@@ -402,6 +402,10 @@ class Settings(BaseSettings):
     ev_exploratory_payout_min: float = Field(
         default=4.0, alias="EV_EXPLORATORY_PAYOUT_MIN"
     )
+    # Minimum EV for the exploratory (lottery-ticket) tier.  Negative
+    # values allow a small model-error budget for extreme asymmetry setups
+    # (price ≤ 5 %, payout ≥ 4x) where our EV estimate may be pessimistic.
+    ev_exploratory_min_ev: float = Field(default=0.0, alias="EV_EXPLORATORY_MIN_EV")
 
     # Per-tier daily caps.
     max_core_trades_per_day: int = Field(default=3, alias="MAX_CORE_TRADES_PER_DAY")
