@@ -52,6 +52,7 @@ from app.services.market_intelligence import (
 from app.services.feedback_loop import FeedbackLoop
 from app.services.market_matching import MarketMatchingService
 from app.services.market_universe import MarketUniverseService
+from app.services.pending_news import PendingNewsQueue
 from app.services.microstructure import MicrostructureFeatures, MicrostructureService
 from app.services.mispricing import MispricingResult, MispricingService, PriceSampler
 from app.services.news_ingestion import IngestedNews, NewsIngestionService
@@ -91,6 +92,7 @@ class Orchestrator:
         self._secondary: Optional[SecondaryMarketsScout] = None
         self._cluster: Optional[WalletClusterScanner] = None
         self._universe: Optional[MarketUniverseService] = None
+        self._pending: Optional[PendingNewsQueue] = None
         self._feedback = FeedbackLoop()
         self._app = None  # telegram.ext.Application
 
@@ -139,8 +141,16 @@ class Orchestrator:
         self._sampler = PriceSampler(self._poly)
         self._secondary = SecondaryMarketsScout(self._poly)
         self._cluster = WalletClusterScanner(self._poly)
+        if settings.pending_news_enabled:
+            self._pending = PendingNewsQueue(
+                ttl_seconds=settings.pending_news_ttl_seconds,
+                max_size=settings.pending_news_max_size,
+            )
         if settings.market_universe_enabled:
-            self._universe = MarketUniverseService(self._poly)
+            self._universe = MarketUniverseService(
+                self._poly,
+                on_refresh=self._on_universe_refresh,
+            )
 
         self._app = build_application(
             trade_executor=self._executor,
@@ -175,6 +185,8 @@ class Orchestrator:
         ]
         if self._universe is not None:
             coros.insert(0, self._universe.run_refresh_loop())
+        if self._pending is not None:
+            coros.append(self._pending_retry_loop())
         await asyncio.gather(*coros)
 
     async def shutdown(self) -> None:
@@ -294,21 +306,19 @@ class Orchestrator:
     async def _handle_news(self, ingested: IngestedNews) -> None:
         """Edge-first news pipeline.
 
-        The order of operations is designed to **fail fast on the
-        measurable gates** before spending any DB writes or Telegram
-        broadcasts on signals that would never trade:
+        Stage 1 — NLP analysis — is unique per news item (we never
+        re-analyse the same headline).  Stages 2-6 — match, micro,
+        mispricing, scoring, execution — are extracted into
+        :meth:`_match_and_execute` so the *same* code path can be
+        re-run later by the pending-news retry loop when a previously
+        unlisted Polymarket market finally appears.
 
-        1. NLP parser (extracts entities / impact / urgency).
-        2. Market matching.
-        3. Microstructure + mispricing + timing in parallel.
-        4. Execution-cost model (``net_edge_pct``) — hard EV gate.
-        5. Scoring (bundles the hard gates into ``passes_trade``).
-        6. Persist + route only when ``passes_trade``.
-
-        If any measurable gate fails (stale, phase > 2, |z| < Z_MIN,
-        net_edge < MIN_EDGE, fill < MIN_FILL_RATIO), we drop the signal
-        silently — no DB row, no alert — so the SAFE/SEMI feed only
-        contains tradable opportunities.
+        If the AI is satisfied but Stage 2 fails to find a market and
+        the news is still fresh enough to retry, the item is enqueued
+        in :attr:`_pending` instead of being dropped silently.  This
+        is the "no-rendirse" loop the bot was missing: we keep good
+        headlines alive until either the market exists or the news
+        ages out.
         """
         assert self._mistral is not None and self._poly is not None
 
@@ -344,7 +354,28 @@ class Orchestrator:
             logger.debug("news_dropped_no_anchor", title=item.title[:80])
             return
 
-        # Freshness pre-gate — cheaper to check before market match.
+        outcome = await self._match_and_execute(ingested, analysis)
+        if outcome == "no_match" and self._pending is not None:
+            await self._pending.add(ingested, analysis)
+
+    async def _match_and_execute(
+        self, ingested: IngestedNews, analysis: AIAnalysis
+    ) -> str:
+        """Run stages 2-6 of the pipeline.
+
+        Returns one of:
+
+        * ``"handled"`` — pipeline ran to completion (whether or not
+          the signal actually traded; the reason is already logged).
+        * ``"stale"`` — news is past ``max_news_age_for_trade``; do
+          not retry.
+        * ``"no_match"`` — couldn't find a tradeable market.  The
+          caller (or the retry loop) decides whether to enqueue or
+          drop based on freshness.
+        """
+        assert self._poly is not None
+        item = ingested.item
+
         news_age = (
             seconds_since(item.published_at) if item.published_at is not None else None
         )
@@ -357,9 +388,8 @@ class Orchestrator:
                 age_s=news_age,
                 max_age=settings.max_news_age_for_trade,
             )
-            return
+            return "stale"
 
-        # 2. Market matching — universe first, then Gamma search.
         matcher = MarketMatchingService(self._poly, universe=self._universe)
         match = await matcher.find(
             ai_market_hint=analysis.market,
@@ -374,7 +404,7 @@ class Orchestrator:
                 hint=analysis.market,
                 entities=analysis.entities,
             )
-            return
+            return "no_match"
         market = match.market
         self._market_cache.set(market.id, market)
 
@@ -411,14 +441,14 @@ class Orchestrator:
                 abs_z=abs_z,
                 min_z=settings.z_min_for_trade,
             )
-            return
+            return "handled"
         if timing.phase not in (1, 2, 3):
             logger.debug(
                 "news_dropped_late_phase",
                 market_id=market.id,
                 phase=timing.phase,
             )
-            return
+            return "handled"
 
         # 4. Execution-cost model (primary EV gate).
         token_id = market.token_id_for_side(side) or ""
@@ -447,7 +477,7 @@ class Orchestrator:
                 reason=reason,
                 net_edge_pct=cost.net_edge_pct if cost else None,
             )
-            return
+            return "handled"
 
         fill_ratio = (
             cost.filled_usd / cost.size_usd if cost and cost.size_usd > 0 else None
@@ -493,7 +523,7 @@ class Orchestrator:
                 phase=timing.phase,
                 entry_price=entry_price,
             )
-            return
+            return "handled"
 
         # 6. Persist (only signals that passed every gate).
         signal = Signal(
@@ -553,6 +583,85 @@ class Orchestrator:
             trader_conviction=0.0,
             high_confidence=score.high_confidence,
         )
+        return "handled"
+
+    async def _on_universe_refresh(
+        self, new_listings: list[MarketSnapshot]
+    ) -> None:
+        """Universe-refresh hook — kick the pending-news retry loop
+        whenever Polymarket lists new markets, so we don't have to wait
+        for the next scheduled retry tick to see if a queued headline
+        finally has a tradeable market.
+        """
+        if not new_listings or self._pending is None:
+            return
+        if self._pending.size == 0:
+            return
+        await self._drain_pending(reason="new_listings")
+
+    async def _pending_retry_loop(self) -> None:
+        """Periodically retry queued news against the current universe."""
+        if self._pending is None:
+            return
+        interval = max(5, settings.pending_news_retry_interval_seconds)
+        while not self._stop.is_set():
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=interval)
+            except asyncio.TimeoutError:
+                pass
+            if self._stop.is_set():
+                break
+            try:
+                await self._drain_pending(reason="tick")
+            except Exception as exc:  # noqa: BLE001 — keep loop alive
+                logger.exception("pending_retry_loop_error", error=str(exc))
+
+    async def _drain_pending(self, *, reason: str) -> None:
+        """Walk the pending queue, evict expired entries, retry the rest."""
+        if self._pending is None:
+            return
+        expired = await self._pending.evict_expired()
+        for entry in expired:
+            logger.info(
+                "news_dropped_pending_expired",
+                title=entry.ingested.item.title[:80],
+                age_s=int(entry.age_seconds()),
+                attempts=entry.attempts,
+            )
+        snapshot = await self._pending.snapshot()
+        if not snapshot:
+            return
+        logger.debug(
+            "pending_retry_pass",
+            reason=reason,
+            queue_size=len(snapshot),
+        )
+        for entry in snapshot:
+            if self._stop.is_set():
+                break
+            await self._pending.mark_attempt(entry.hash)
+            try:
+                outcome = await self._match_and_execute(
+                    entry.ingested, entry.analysis
+                )
+            except Exception as exc:  # noqa: BLE001 — keep retrying others
+                logger.exception(
+                    "pending_retry_item_error",
+                    title=entry.ingested.item.title[:80],
+                    error=str(exc),
+                )
+                continue
+            if outcome == "no_match":
+                # leave in queue; another tick or new-listing will retry.
+                continue
+            await self._pending.drop(entry.hash)
+            if outcome == "handled":
+                logger.info(
+                    "pending_resolved",
+                    title=entry.ingested.item.title[:80],
+                    attempts=entry.attempts + 1,
+                    age_s=int(entry.age_seconds()),
+                )
 
     async def _route_signal(
         self,

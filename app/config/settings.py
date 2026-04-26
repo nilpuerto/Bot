@@ -360,10 +360,39 @@ class Settings(BaseSettings):
     market_universe_size: int = Field(
         default=300, alias="MARKET_UNIVERSE_SIZE"
     )
-    # Refresh cadence.  Five minutes is a good balance between API
-    # politeness and staying current with new market launches.
+    # Refresh cadence.  90 seconds is the sweet spot we landed on after
+    # noticing that newly-listed Polymarket markets often appear within
+    # 1-3 minutes of breaking news; refreshing every 90 s catches them
+    # while the early-price edge is still on the table without
+    # hammering Gamma.
     market_universe_refresh_seconds: int = Field(
-        default=300, alias="MARKET_UNIVERSE_REFRESH_SECONDS"
+        default=90, alias="MARKET_UNIVERSE_REFRESH_SECONDS"
+    )
+
+    # ---- Pending-news retry --------------------------------------------
+    # When AI tags a news item as relevant but Polymarket hasn't listed
+    # the matching market YET (very common in the first 0-3 minutes of
+    # breaking news), the bot keeps the headline + analysis in memory
+    # and retries matching periodically.  This turns "we missed the
+    # listing by 90 s" into "we entered at the early price" — exactly
+    # where the asymmetric upside lives.
+    pending_news_enabled: bool = Field(
+        default=True, alias="PENDING_NEWS_ENABLED"
+    )
+    # How long a news item stays retryable before being dropped for good.
+    pending_news_ttl_seconds: int = Field(
+        default=900, alias="PENDING_NEWS_TTL_SECONDS"
+    )
+    # How often the retry loop re-runs the matcher.  Keep this in the
+    # same neighbourhood as `MARKET_UNIVERSE_REFRESH_SECONDS` — there's
+    # no point retrying faster than the universe updates.
+    pending_news_retry_interval_seconds: int = Field(
+        default=60, alias="PENDING_NEWS_RETRY_INTERVAL_SECONDS"
+    )
+    # Hard cap to prevent a runaway news stream from growing the queue
+    # without bound.  Eviction is oldest-first.
+    pending_news_max_size: int = Field(
+        default=200, alias="PENDING_NEWS_MAX_SIZE"
     )
 
     # ---- Market Intelligence feature layer (OFF by default) ------------

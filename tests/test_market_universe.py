@@ -182,3 +182,29 @@ def test_top_questions_returns_in_order() -> None:
     ]
     qs = svc.top_questions(limit=2)
     assert qs == ["Question A", "Question B"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_detects_new_listings_and_fires_callback() -> None:
+    poly: Any = _FakePoly([_m("a", "Will Bitcoin hit 100k?", volume=10_000)])
+    callback_payloads: list[list[Any]] = []
+
+    async def on_refresh(new_listings):
+        callback_payloads.append(new_listings)
+
+    svc = MarketUniverseService(
+        poly, size=10, refresh_seconds=60, on_refresh=on_refresh
+    )
+
+    # First refresh — no previous universe, so no "new" listings reported.
+    await svc.refresh()
+    assert svc.last_new_listings == []
+    assert callback_payloads == [[]]
+
+    # Add a brand-new market and refresh again.
+    poly._universe.append(_m("b", "Will Trump win 2028?", volume=20_000))
+    await svc.refresh()
+
+    assert {m.id for m in svc.last_new_listings} == {"b"}
+    assert len(callback_payloads) == 2
+    assert {m.id for m in callback_payloads[1]} == {"b"}

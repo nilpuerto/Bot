@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Iterable, Optional
+from typing import Awaitable, Callable, Iterable, Optional
 
 from app.config.settings import settings
 from app.integrations.polymarket_client import MarketSnapshot, PolymarketClient
@@ -87,6 +87,9 @@ class MarketUniverseService:
         size: Optional[int] = None,
         refresh_seconds: Optional[int] = None,
         order: str = "volume24hr",
+        on_refresh: Optional[
+            Callable[[list[MarketSnapshot]], Awaitable[None]]
+        ] = None,
     ) -> None:
         self._poly = polymarket
         self._size = int(size if size is not None else settings.market_universe_size)
@@ -97,9 +100,12 @@ class MarketUniverseService:
         )
         self._order = order
         self._markets: list[MarketSnapshot] = []
+        self._known_ids: set[str] = set()
+        self._last_new_listings: list[MarketSnapshot] = []
         self._lock = asyncio.Lock()
         self._stop = asyncio.Event()
         self._last_refresh_ts: float = 0.0
+        self._on_refresh = on_refresh
 
     # ---- read-only views ------------------------------------------------
 
@@ -117,6 +123,14 @@ class MarketUniverseService:
     def top_questions(self, limit: int = 30) -> list[str]:
         """Top-N market questions, useful for grounding an LLM prompt."""
         return [m.question for m in self._markets[: max(0, int(limit))]]
+
+    @property
+    def last_new_listings(self) -> list[MarketSnapshot]:
+        """Markets that appeared in the most recent refresh but were
+        not in the previous universe.  Useful for the pending-news
+        retry loop to know whether a re-match is even worth attempting.
+        """
+        return self._last_new_listings
 
     # ---- lifecycle ------------------------------------------------------
 
@@ -151,14 +165,37 @@ class MarketUniverseService:
                     fetched=len(fresh),
                 )
                 return len(self._markets)
+            new_ids = {m.id for m in usable}
+            new_listings = (
+                [m for m in usable if m.id not in self._known_ids]
+                if self._known_ids
+                else []
+            )
             self._markets = usable
+            self._last_new_listings = new_listings
+            self._known_ids = new_ids
+            self._last_refresh_ts = asyncio.get_event_loop().time()
             logger.info(
                 "market_universe_refreshed",
                 size=len(usable),
                 fetched=len(fresh),
+                new_listings=len(new_listings),
                 top=usable[0].question[:60] if usable else None,
             )
-            return len(usable)
+            if new_listings:
+                logger.info(
+                    "market_universe_new_listings",
+                    count=len(new_listings),
+                    examples=[m.question[:60] for m in new_listings[:5]],
+                )
+        # Fire the callback OUTSIDE the lock so subscribers can call
+        # back into the universe without deadlocking.
+        if self._on_refresh is not None:
+            try:
+                await self._on_refresh(new_listings)
+            except Exception as exc:  # noqa: BLE001 — defensive
+                logger.warning("market_universe_on_refresh_error", error=str(exc))
+        return len(self._markets)
 
     async def run_refresh_loop(self) -> None:
         """Background task: refresh on start then every ``refresh_seconds``."""

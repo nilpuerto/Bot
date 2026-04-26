@@ -251,13 +251,19 @@ following keys in the Render dashboard if you want the new behaviour:
 | `CLUSTER_MAX_TRADES_PER_DAY` | `3`                   | Allow cluster to actually trade           |
 | `MARKET_UNIVERSE_ENABLED`        | `true` | Polymarket-first matching (in-memory)              |
 | `MARKET_UNIVERSE_SIZE`           | `300`  | Top markets by 24-h volume cached locally          |
-| `MARKET_UNIVERSE_REFRESH_SECONDS`| `300`  | How often the universe refreshes from Gamma        |
+| `MARKET_UNIVERSE_REFRESH_SECONDS`| `90`   | Catch newly-listed markets within ~1-2 min         |
+| `PENDING_NEWS_ENABLED`           | `true` | Keep retrying news whose market isn't listed yet   |
+| `PENDING_NEWS_TTL_SECONDS`       | `900`  | How long a pending headline stays retryable        |
+| `PENDING_NEWS_RETRY_INTERVAL_SECONDS` | `60` | How often the retry loop re-tries the queue   |
+| `PENDING_NEWS_MAX_SIZE`          | `200`  | Hard cap on the in-memory pending queue            |
 
 Click **Save Changes** — Render restarts the service automatically.
 Tail the logs to confirm `orchestrator_started`, `news_fetched`,
-`market_universe_refreshed size=…`, `ai_analysis market=…`,
-`market_matched via=universe …`, and eventually `trade_opened_real`
-/ `trade_opened_simulated`.
+`market_universe_refreshed size=…`, `market_universe_new_listings count=…`
+when Polymarket lists fresh markets, `ai_analysis market=…`,
+`market_matched via=universe …`, `pending_news_enqueued` /
+`pending_resolved` for the retry loop, and eventually
+`trade_opened_real` / `trade_opened_simulated`.
 
 ### What "Polymarket-first matching" means
 
@@ -277,6 +283,27 @@ the top-N still get a chance.
 Operationally this means: **logs that previously read
 `market=None`-everywhere now resolve to real `market_id`s**, and most
 trades come from `market_matched via=universe` rather than `via=search`.
+
+### Pending-news retry — never drop a fresh headline early
+
+Polymarket often lists the matching market 30 s — 3 min *after* a
+breaking-news headline crosses the wires.  Without retry, the bot
+analysed the news, failed to find a market, and silently dropped the
+opportunity forever — even though the early price was still on the
+table once Polymarket listed the market a minute later.
+
+The orchestrator now keeps such headlines in an in-memory
+`PendingNewsQueue` for `PENDING_NEWS_TTL_SECONDS` and runs the same
+matching + execution pipeline against the *current* universe on every
+`PENDING_NEWS_RETRY_INTERVAL_SECONDS` tick.  When
+`MarketUniverseService` detects newly-listed markets the orchestrator
+also drains the queue immediately, so a fresh listing can be acted on
+within seconds rather than waiting for the next scheduled tick.
+
+You'll see this in the logs as
+`pending_news_enqueued` → `market_universe_new_listings` →
+`pending_resolved` → `trade_opened_…`, exactly the "no rendirse" path
+described above.
 
 ## License
 
