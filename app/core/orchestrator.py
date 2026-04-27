@@ -340,7 +340,7 @@ class Orchestrator:
             market=analysis.market,
         )
 
-        if analysis.urgency <= 0:
+        if analysis.urgency < 0:
             return
         # Neutral impact is no longer a hard veto — it is penalised at the
         # EV / scoring layer where side is derived from z-score direction.

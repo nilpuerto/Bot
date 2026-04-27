@@ -170,8 +170,8 @@ def test_alerts_share_the_trade_gate() -> None:
     we no longer surface 'maybe interesting' signals that would fail
     the cost model."""
     scorer = SignalScoringSystem()
-    # Failing case.
-    b_fail = scorer.score(**_kw(net_edge_pct=1.0))
+    # Failing case — use 0.5 which is clearly below MIN_EDGE_PCT=1.0.
+    b_fail = scorer.score(**_kw(net_edge_pct=0.5))
     assert b_fail.passes_alert == b_fail.passes_trade == False
     # Passing case.
     b_ok = scorer.score(**_kw())
