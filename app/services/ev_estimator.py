@@ -83,6 +83,14 @@ def compute_ev(
     ctx_boost = float(context_score) * float(settings.ev_context_max_boost)
     p_edge_real = min(0.95, base_p + z_boost + ctx_boost)
 
+    # When z=0 (no measurable mispricing / no price history) apply a
+    # confidence penalty so the EV model remains honest: we have no
+    # statistical evidence of an edge, only context-based prior.
+    # This is a soft penalty (not a gate): the trade can still proceed
+    # if EV clears the floor after the haircut.
+    if abs_z == 0.0:
+        p_edge_real *= float(settings.ev_no_z_penalty)
+
     # --- EV formula -------------------------------------------------------
     # Expected gain  = P_real × net_edge
     # Expected loss  = (1 - P_real) × round-trip-cost-proxy

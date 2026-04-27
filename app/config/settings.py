@@ -393,6 +393,10 @@ class Settings(BaseSettings):
     ev_z_boost_per_unit: float = Field(default=0.08, alias="EV_Z_BOOST_PER_UNIT")
     ev_z_boost_max: float = Field(default=0.20, alias="EV_Z_BOOST_MAX")
     ev_context_max_boost: float = Field(default=0.10, alias="EV_CONTEXT_MAX_BOOST")
+    # Multiplicative penalty applied to P_edge_real when abs_z == 0 (no
+    # measurable mispricing / market has no price history).  Keeps EV honest
+    # without hard-blocking volume.  0.65 ≈ one confidence step down.
+    ev_no_z_penalty: float = Field(default=0.65, alias="EV_NO_Z_PENALTY")
     # Estimated loss when the edge is noise (round-trip cost proxy, in %).
     ev_loss_estimate_pct: float = Field(default=2.0, alias="EV_LOSS_ESTIMATE_PCT")
     ev_core_min: float = Field(default=1.5, alias="EV_CORE_MIN")
