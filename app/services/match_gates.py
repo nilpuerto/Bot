@@ -316,6 +316,75 @@ def passes_entity_gate(
     return True
 
 
+# Synonym/abbreviation map used by the hint-alignment gate.
+# Bidirectional entries are explicit so "btc"→"bitcoin" and
+# "bitcoin"→"btc" both work regardless of which side writes the hint.
+_TOKEN_SYNONYMS: dict[str, set[str]] = {
+    "btc": {"bitcoin"},
+    "bitcoin": {"btc"},
+    "eth": {"ethereum"},
+    "ethereum": {"eth"},
+    "sol": {"solana"},
+    "solana": {"sol"},
+    "xrp": {"ripple"},
+    "ripple": {"xrp"},
+    "fed": {"federal", "fomc", "reserve"},
+    "federal": {"fed"},
+    "reserve": {"fed", "federal"},
+    "fomc": {"fed", "federal"},
+    "trump": {"donald"},
+    "donald": {"trump"},
+    "elon": {"musk"},
+    "musk": {"elon"},
+    "usd": {"dollar", "dollars"},
+    "dollar": {"usd", "dollars"},
+}
+
+
+def expand_hint_tokens(tokens: set[str]) -> set[str]:
+    """Expand a token set with common synonyms and abbreviations.
+
+    Ensures that "BTC price" matches markets using "bitcoin", and
+    "Fed rate" matches markets spelling out "Federal Reserve".
+    """
+    expanded = set(tokens)
+    for t in tokens:
+        expanded.update(_TOKEN_SYNONYMS.get(t, set()))
+    return expanded
+
+
+def passes_hint_gate(
+    *,
+    ai_market_hint: Optional[str],
+    market_tokens: set[str],
+    hint_min_tokens: int = 2,
+) -> bool:
+    """Require the AI market hint to align lexically with the candidate.
+
+    When the AI's market hint contains at least ``hint_min_tokens``
+    meaningful tokens *and* none of them (after synonym expansion)
+    appear in the candidate market question, the candidate is almost
+    certainly wrong.  The entity bonus on a single generic token
+    (e.g. "Fed" appearing in both a gold-price headline and a Fed-Chair
+    confirmation market) must not be the sole anchor for a match.
+
+    Blocks:
+        hint="Gold above $4800 EOY"  → market="Will Kevin Warsh confirm as Fed Chair?"  ✗
+        hint="BTC price surge"       → market="FIFA World Cup winner?"                   ✗
+    Allows:
+        hint="Gold above $4800 EOY"  → market="Will Gold be above $5000 by EOY?"        ✓
+        hint="BTC price surge"       → market="Will Bitcoin be above $100k?"             ✓
+        hint="Fed rate hike"         → market="Will Federal Reserve raise rates?"        ✓
+    """
+    if not ai_market_hint:
+        return True
+    hint_tokens = {t for t in normalize(ai_market_hint).split() if len(t) > 2}
+    if len(hint_tokens) < hint_min_tokens:
+        return True
+    expanded = expand_hint_tokens(hint_tokens)
+    return bool(expanded & market_tokens)
+
+
 def normalize_entities(entities: Optional[Iterable[str]]) -> set[str]:
     return {normalize(e).strip() for e in (entities or []) if e and e.strip()}
 

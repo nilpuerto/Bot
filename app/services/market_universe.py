@@ -42,6 +42,7 @@ from app.services.match_gates import (
     infer_news_cluster,
     normalize_entities,
     passes_entity_gate,
+    passes_hint_gate,
 )
 from app.utils.logger import get_logger
 from app.utils.text import normalize
@@ -325,6 +326,18 @@ class MarketUniverseService:
                 jaccard=jaccard,
                 no_entity_jaccard_min=no_ent_jaccard,
                 require_entity_hit=require_ent,
+            ):
+                continue
+
+            # Hard gate 3: hint-alignment.  When the AI specified a
+            # concrete market hint (e.g. "Gold above $4800 EOY"), the
+            # candidate must share at least one token with that hint
+            # (after synonym expansion).  Prevents a generic entity
+            # token ("Fed") from bridging completely unrelated markets
+            # (gold-price news → Fed-Chair confirmation market).
+            if not passes_hint_gate(
+                ai_market_hint=ai_market_hint,
+                market_tokens=market_tokens,
             ):
                 continue
 

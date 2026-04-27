@@ -33,6 +33,7 @@ from app.services.match_gates import (
     infer_news_cluster,
     normalize_entities,
     passes_entity_gate,
+    passes_hint_gate,
 )
 from app.utils.logger import get_logger
 from app.utils.text import normalize
@@ -171,6 +172,18 @@ class MarketMatchingService:
                 jaccard=jaccard,
                 no_entity_jaccard_min=no_ent_jaccard,
                 require_entity_hit=require_ent,
+            ):
+                gated_out += 1
+                continue
+
+            # Hard gate 3 — hint-alignment gate.  When the AI produced
+            # a concrete market hint, the candidate must share at least
+            # one token with it (synonyms expanded).  Blocks the "Fed"
+            # token in a gold-price headline from matching a Fed-Chair
+            # confirmation market.
+            if not passes_hint_gate(
+                ai_market_hint=ai_market_hint,
+                market_tokens=market_tokens,
             ):
                 gated_out += 1
                 continue
