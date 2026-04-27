@@ -362,19 +362,28 @@ def passes_hint_gate(
     """Require the AI market hint to align lexically with the candidate.
 
     When the AI's market hint contains at least ``hint_min_tokens``
-    meaningful tokens *and* none of them (after synonym expansion)
-    appear in the candidate market question, the candidate is almost
-    certainly wrong.  The entity bonus on a single generic token
-    (e.g. "Fed" appearing in both a gold-price headline and a Fed-Chair
-    confirmation market) must not be the sole anchor for a match.
+    meaningful tokens *and* the overlap (after synonym expansion) with
+    the candidate market question is below the required minimum, the
+    candidate is almost certainly wrong.
+
+    Minimum overlap rule
+    --------------------
+    * hint has < 4 tokens  → require ≥ 1 overlapping token
+    * hint has ≥ 4 tokens  → require ≥ 2 overlapping tokens
+
+    The stricter 2-token requirement for longer hints prevents single
+    generic location tokens from creating cross-sport or cross-domain
+    mismatches, e.g.:
 
     Blocks:
-        hint="Gold above $4800 EOY"  → market="Will Kevin Warsh confirm as Fed Chair?"  ✗
-        hint="BTC price surge"       → market="FIFA World Cup winner?"                   ✗
+        hint="Gold above $4800 EOY"         → market="Will Kevin Warsh confirm as Fed Chair?"  ✗
+        hint="Real Madrid beats Barcelona"  → market="Madrid Open: Ann Li vs Fernandez"        ✗
+        hint="BTC price surge"              → market="FIFA World Cup winner?"                   ✗
     Allows:
-        hint="Gold above $4800 EOY"  → market="Will Gold be above $5000 by EOY?"        ✓
-        hint="BTC price surge"       → market="Will Bitcoin be above $100k?"             ✓
-        hint="Fed rate hike"         → market="Will Federal Reserve raise rates?"        ✓
+        hint="Real Madrid beats Barcelona"  → market="Will Real Madrid win El Clásico?"        ✓
+        hint="Gold above $4800 EOY"         → market="Will Gold be above $5000 by EOY?"        ✓
+        hint="BTC price surge"              → market="Will Bitcoin be above $100k?"             ✓
+        hint="Fed rate hike"                → market="Will Federal Reserve raise rates?"        ✓
     """
     if not ai_market_hint:
         return True
@@ -382,7 +391,11 @@ def passes_hint_gate(
     if len(hint_tokens) < hint_min_tokens:
         return True
     expanded = expand_hint_tokens(hint_tokens)
-    return bool(expanded & market_tokens)
+    overlap = expanded & market_tokens
+    # Longer, more specific hints need 2 matching tokens to avoid single
+    # generic token anchors (e.g. "Madrid" linking football to tennis).
+    min_overlap = 2 if len(hint_tokens) >= 4 else 1
+    return len(overlap) >= min_overlap
 
 
 def normalize_entities(entities: Optional[Iterable[str]]) -> set[str]:
@@ -397,9 +410,11 @@ def count_entity_hits(ent_norms: set[str], market_norm: str) -> int:
     short form ("Cavaliers"):
 
     1. Full-string substring match — exact, highest quality.
-    2. Partial-token match — any *significant* token (≥ 4 chars) from the
-       entity appears in the market question.  Rejects noise tokens like
-       "the", "and", "of" which would otherwise cause spurious hits.
+    2. Partial-token match — significant tokens (≥ 4 chars) from the entity
+       must appear in the market question.  For compound entities (2+
+       significant tokens), a majority (≥ 2) must match to prevent single
+       generic tokens like "madrid" in "Real Madrid" from anchoring
+       unrelated markets like "Madrid Open".
 
     Each entity contributes at most 1 hit regardless of how many of its
     tokens match (avoids inflating the count for long entity names).
@@ -411,8 +426,15 @@ def count_entity_hits(ent_norms: set[str], market_norm: str) -> int:
         if e in market_norm:
             hits += 1
         else:
-            # Partial: any meaningful token (≥ 4 chars) of the entity
-            tokens = {t for t in e.split() if len(t) >= 4}
-            if any(t in market_norm for t in tokens):
+            tokens = [t for t in e.split() if len(t) >= 4]
+            if not tokens:
+                continue
+            token_hits = sum(1 for t in tokens if t in market_norm)
+            # Compound entities (2+ significant tokens) require at least
+            # 2 matching tokens so that "Real Madrid" cannot hit a market
+            # on "madrid" alone while "Barcelona" (1 token) still fires
+            # on a single token hit.
+            min_hits = min(2, len(tokens)) if len(tokens) >= 2 else 1
+            if token_hits >= min_hits:
                 hits += 1
     return hits
