@@ -113,8 +113,8 @@ def test_phase_outside_1_or_2_blocks_trade() -> None:
 
 def test_low_z_blocks_trade() -> None:
     scorer = SignalScoringSystem()
-    # Z_MIN_FOR_TRADE=0.8 — use abs_z=0.5 which is clearly below the floor
-    b = scorer.score(**_strong_kwargs(mispricing=_mispricing(z=-0.5)))
+    # Z_MIN_FOR_TRADE=0.3 — use abs_z=0.1 which is clearly below the floor
+    b = scorer.score(**_strong_kwargs(mispricing=_mispricing(z=-0.1)))
     assert b.passes_trade is False
     assert "z_below_min" in b.gate_reason
 

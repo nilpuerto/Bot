@@ -82,8 +82,8 @@ def _kw(**over):
 
 def test_gate_blocks_when_z_below_min() -> None:
     scorer = SignalScoringSystem()
-    # Z_MIN_FOR_TRADE=0.8 — use abs_z=0.5 which is clearly below the floor
-    b = scorer.score(**_kw(mispricing=_mp(z=-0.5)))
+    # Z_MIN_FOR_TRADE=0.3 — use abs_z=0.1 which is clearly below the floor
+    b = scorer.score(**_kw(mispricing=_mp(z=-0.1)))
     assert b.passes_trade is False
     assert b.passes_alert is False
     assert "z_below_min" in b.gate_reason
@@ -170,8 +170,8 @@ def test_alerts_share_the_trade_gate() -> None:
     we no longer surface 'maybe interesting' signals that would fail
     the cost model."""
     scorer = SignalScoringSystem()
-    # Failing case — use 0.5 which is clearly below MIN_EDGE_PCT=1.0.
-    b_fail = scorer.score(**_kw(net_edge_pct=0.5))
+    # Failing case — deeply negative edge so EV is well below reject floor.
+    b_fail = scorer.score(**_kw(net_edge_pct=-10.0))
     assert b_fail.passes_alert == b_fail.passes_trade == False
     # Passing case.
     b_ok = scorer.score(**_kw())

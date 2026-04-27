@@ -442,7 +442,7 @@ class Orchestrator:
                 min_z=settings.z_min_for_trade,
             )
             return "handled"
-        if timing.phase not in (1, 2, 3):
+        if timing.phase not in (1, 2, 3, 4):
             logger.info(
                 "news_dropped_late_phase",
                 market_id=market.id,

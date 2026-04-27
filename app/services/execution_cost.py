@@ -111,17 +111,18 @@ class ExecutionCostModel:
             slippage_pct = abs(slip_bps or 0.0) / 100.0  # bps → %
             net_edge_pct = edge_pct - spread_cost_pct - slippage_pct - self.fees_pct
 
+        fill_floor = float(settings.min_fill_ratio)
         passes = (
             vwap is not None
             and net_edge_pct is not None
             and net_edge_pct >= self.min_edge_pct
-            and (filled >= size_usd * 0.75)  # need to actually fill ≥75%
+            and (filled >= size_usd * fill_floor)
         )
         reason = "ok"
         if vwap is None:
             reason = "no_fill"
-        elif filled < size_usd * 0.75:
-            reason = f"partial_fill_{filled:.2f}/{size_usd:.2f}"
+        elif filled < size_usd * fill_floor:
+            reason = f"partial_fill_{filled:.2f}/{size_usd:.2f}_floor_{fill_floor}"
         elif net_edge_pct is None:
             reason = "no_edge"
         elif net_edge_pct < self.min_edge_pct:
