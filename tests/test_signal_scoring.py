@@ -261,19 +261,34 @@ def test_low_prob_passes_with_any_positive_edge() -> None:
     assert "edge_below_min" not in (b.gate_reason or "")
 
 
-def test_low_prob_rejects_phase_two() -> None:
-    """Phase 2 is allowed for CORE but rejected for LOW-PROB (phase 1 only)."""
+def test_low_prob_allows_phases_1_to_3() -> None:
+    """LOW-PROB now allows phases 1-3 (moonshot entries rarely arrive in phase 1)."""
+    scorer = SignalScoringSystem()
+    for phase in (1, 2, 3):
+        b = scorer.score(
+            **_strong_kwargs(
+                entry_price=_low_prob_price(),
+                mispricing=_mispricing(z=-3.0),
+                net_edge_pct=settings.low_prob_min_edge_pct + 1.0,
+                timing=_timing(phase),
+            )
+        )
+        assert b.passes_trade is True, f"LOW-PROB phase {phase} should pass"
+
+
+def test_low_prob_rejects_phase_four() -> None:
+    """Phase 4 is still rejected for LOW-PROB."""
     scorer = SignalScoringSystem()
     b = scorer.score(
         **_strong_kwargs(
             entry_price=_low_prob_price(),
             mispricing=_mispricing(z=-3.0),
             net_edge_pct=settings.low_prob_min_edge_pct + 1.0,
-            timing=_timing(2),
+            timing=_timing(4),
         )
     )
     assert b.passes_trade is False
-    assert "phase_2" in b.gate_reason
+    assert "phase_4_not_tradeable" in b.gate_reason
 
 
 def test_core_profile_allows_phase_two_and_relaxed_thresholds() -> None:

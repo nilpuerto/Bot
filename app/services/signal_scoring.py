@@ -230,11 +230,14 @@ class SignalScoringSystem:
             if is_low_prob
             else settings.min_edge_pct
         )
-        # CORE profile allows phases 1-4; LOW-PROB stays at phase 1 only.
-        # Phase 4 (slightly older news) is still tradeable in test mode —
-        # the timing_mult penalty (0.50) already discounts it in EV.
-        # Orchestrator pre-gate also allows 1-4, keeping the two in sync.
-        allowed_phases = (1,) if is_low_prob else (1, 2, 3, 4)
+        # CORE profile allows phases 1-4.
+        # LOW-PROB profile now allows phases 1-3: lottery-ticket entries
+        # almost never arrive in phase 1 (they need time for the news to
+        # travel to retail), so restricting to phase 1 was effectively
+        # blocking every moonshot with real EV.  Phase 4 is still excluded
+        # for low-prob because the timing_mult (0.50) combined with a very
+        # thin P_edge gives near-zero or negative EV anyway.
+        allowed_phases = (1, 2, 3) if is_low_prob else (1, 2, 3, 4)
 
         direction_ok = True
         # Treat unknown age (published_at missing) as fresh — the orchestrator
