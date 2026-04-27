@@ -80,13 +80,12 @@ def _kw(**over):
     return base
 
 
-def test_gate_blocks_when_z_below_min() -> None:
+def test_z_gate_removed_any_z_passes() -> None:
+    # Z_MIN_FOR_TRADE=0.0 — z-gate fully removed; EV handles quality.
+    # Even z=0.0 (no measurable mispricing) is allowed through.
     scorer = SignalScoringSystem()
-    # Z_MIN_FOR_TRADE=0.3 — use abs_z=0.1 which is clearly below the floor
-    b = scorer.score(**_kw(mispricing=_mp(z=-0.1)))
-    assert b.passes_trade is False
-    assert b.passes_alert is False
-    assert "z_below_min" in b.gate_reason
+    b = scorer.score(**_kw(mispricing=_mp(z=0.0)))
+    assert "z_below_min" not in (b.gate_reason or "")
 
 
 def test_gate_blocks_when_net_edge_below_min() -> None:

@@ -112,12 +112,11 @@ def test_phase_outside_1_to_4_blocks_trade() -> None:
     assert "phase_5" in b.gate_reason
 
 
-def test_low_z_blocks_trade() -> None:
+def test_z_gate_removed_low_z_passes_if_ev_positive() -> None:
+    # Z_MIN_FOR_TRADE=0.0 — any z is allowed; EV decides quality.
     scorer = SignalScoringSystem()
-    # Z_MIN_FOR_TRADE=0.3 — use abs_z=0.1 which is clearly below the floor
     b = scorer.score(**_strong_kwargs(mispricing=_mispricing(z=-0.1)))
-    assert b.passes_trade is False
-    assert "z_below_min" in b.gate_reason
+    assert "z_below_min" not in (b.gate_reason or "")
 
 
 def test_low_edge_blocks_trade() -> None:
@@ -233,8 +232,8 @@ def test_low_prob_detected_by_entry_price() -> None:
     assert b.feature_vector.get("is_low_prob") is True
 
 
-def test_low_prob_blocked_by_very_low_z() -> None:
-    """LOW-PROB (same Z_MIN as CORE=0.3): z=0.1 is below floor."""
+def test_low_prob_z_gate_removed() -> None:
+    """LOW_PROB_Z_MIN=0.0 — z-gate removed for low-prob entries too."""
     scorer = SignalScoringSystem()
     b = scorer.score(
         **_strong_kwargs(
@@ -244,8 +243,7 @@ def test_low_prob_blocked_by_very_low_z() -> None:
             timing=_timing(1),
         )
     )
-    assert b.passes_trade is False
-    assert "z_below_min" in b.gate_reason
+    assert "z_below_min" not in (b.gate_reason or "")
 
 
 def test_low_prob_passes_with_any_positive_edge() -> None:
