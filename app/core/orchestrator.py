@@ -434,17 +434,19 @@ class Orchestrator:
         # later by the scorer once we know the entry price.
         abs_z = abs(mispricing.z) if mispricing and mispricing.z is not None else 0.0
         if abs_z < settings.z_min_for_trade:
-            logger.debug(
+            logger.info(
                 "news_dropped_low_z",
                 market_id=market.id,
-                abs_z=abs_z,
+                question=market.question[:60],
+                abs_z=round(abs_z, 3),
                 min_z=settings.z_min_for_trade,
             )
             return "handled"
         if timing.phase not in (1, 2, 3):
-            logger.debug(
+            logger.info(
                 "news_dropped_late_phase",
                 market_id=market.id,
+                question=market.question[:60],
                 phase=timing.phase,
             )
             return "handled"

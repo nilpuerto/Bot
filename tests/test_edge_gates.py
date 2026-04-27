@@ -82,7 +82,8 @@ def _kw(**over):
 
 def test_gate_blocks_when_z_below_min() -> None:
     scorer = SignalScoringSystem()
-    b = scorer.score(**_kw(mispricing=_mp(z=-1.0)))
+    # Z_MIN_FOR_TRADE=0.8 — use abs_z=0.5 which is clearly below the floor
+    b = scorer.score(**_kw(mispricing=_mp(z=-0.5)))
     assert b.passes_trade is False
     assert b.passes_alert is False
     assert "z_below_min" in b.gate_reason

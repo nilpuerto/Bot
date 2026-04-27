@@ -67,14 +67,16 @@ def test_exploratory_low_price_thin_ev_is_low_tier() -> None:
 
     With the recalibrated EV_OPP_MIN=0.05, an exploratory signal only lands
     in the "low" tier when EV is between 0 and 0.05.  That requires a
-    combination of a wafer-thin net_edge (~1.23%) with near-zero z+context
-    boost so P_edge_real stays close to BASE_P=0.55.
+    combination of a thin net_edge (~0.5%) so EV is negative but above
+    EV_EXPLORATORY_MIN_EV=-0.6.  With EV_OPP_MIN=0.0, any EV < 0 that
+    still beats the exploratory floor qualifies as the "low" tier.
 
-    EV ≈ 0.55×1.23 − 0.45×1.5 ≈ 0.0015  (between EV_EXPLORATORY_MIN_EV and EV_OPP_MIN=0.01).
+    EV ≈ 0.55×0.50 − 0.45×1.5 = 0.275 − 0.675 = −0.40
+    −0.40 is between EV_EXPLORATORY_MIN_EV (−0.6) and EV_OPP_MIN (0.0).
     """
     low_price = float(settings.low_prob_entry_price) - 0.01
     r = compute_ev(
-        net_edge_pct=1.23,  # thin enough for EV in (exploratory_floor, EV_OPP_MIN)
+        net_edge_pct=0.50,  # thin → EV negative but above exploratory floor
         abs_z=0.0,          # no z boost → p stays near BASE_P
         context_score=0.0,  # no context boost
         entry_price=low_price,
