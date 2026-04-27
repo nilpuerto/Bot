@@ -230,15 +230,19 @@ class SignalScoringSystem:
             if is_low_prob
             else settings.min_edge_pct
         )
-        # CORE profile now allows phase 3 (retail influx) — we still
-        # prefer phases 1-2 via the sizing tier driver, but blocking
-        # phase 3 entirely was killing too many borderline signals.
-        # LOW-PROB stays strict at phase 1 only (initial repricing).
-        allowed_phases = (1,) if is_low_prob else (1, 2, 3)
+        # CORE profile allows phases 1-4; LOW-PROB stays at phase 1 only.
+        # Phase 4 (slightly older news) is still tradeable in test mode —
+        # the timing_mult penalty (0.50) already discounts it in EV.
+        # Orchestrator pre-gate also allows 1-4, keeping the two in sync.
+        allowed_phases = (1,) if is_low_prob else (1, 2, 3, 4)
 
         direction_ok = True
+        # Treat unknown age (published_at missing) as fresh — the orchestrator
+        # already ran its own stale check and only feeds us items it considers
+        # tradeable.  Blocking on None here was silently killing all RSS items
+        # whose feeds don't include a publication date.
         freshness_ok = (
-            news_age_s is not None and news_age_s <= settings.max_news_age_for_trade
+            news_age_s is None or news_age_s <= settings.max_news_age_for_trade
         )
         phase_ok = phase in allowed_phases
         z_ok = abs_z >= eff_z_min

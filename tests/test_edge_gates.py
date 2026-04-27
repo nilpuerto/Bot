@@ -105,10 +105,9 @@ def test_gate_blocks_when_net_edge_missing() -> None:
 
 
 def test_gate_blocks_when_phase_is_overreaction_or_later() -> None:
-    """CORE profile blocks phase 4/5; phase 3 (retail influx) is now
-    allowed under the activity-friendly tuning."""
+    """CORE profile now allows phases 1-4; only phase 5 is blocked."""
     scorer = SignalScoringSystem()
-    for phase in (4, 5):
+    for phase in (5,):
         b = scorer.score(
             **_kw(timing=TimingDecision(phase=phase, score=0, label="", reason=""))
         )
@@ -181,10 +180,11 @@ def test_alerts_share_the_trade_gate() -> None:
 def test_score_is_cosmetic_not_a_gate() -> None:
     """A high total score cannot override a failed hard gate."""
     scorer = SignalScoringSystem()
+    # Phase 5 (decay zone) blocks even with a huge mispricing score.
     b = scorer.score(
         **_kw(
             mispricing=_mp(z=-5.0),  # huge score component
-            timing=TimingDecision(phase=4, score=0, label="", reason=""),
+            timing=TimingDecision(phase=5, score=0, label="", reason=""),
         )
     )
     assert b.total > 40.0  # score still high from mispricing

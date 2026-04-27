@@ -104,11 +104,12 @@ def test_neutral_impact_is_penalized_not_auto_rejected() -> None:
     assert b.gate_reason == "ok"
 
 
-def test_phase_outside_1_or_2_blocks_trade() -> None:
+def test_phase_outside_1_to_4_blocks_trade() -> None:
     scorer = SignalScoringSystem()
-    b = scorer.score(**_strong_kwargs(timing=_timing(4)))
+    # Phase 5 (decay zone) is the only phase blocked now
+    b = scorer.score(**_strong_kwargs(timing=_timing(5)))
     assert b.passes_trade is False
-    assert "phase_4" in b.gate_reason
+    assert "phase_5" in b.gate_reason
 
 
 def test_low_z_blocks_trade() -> None:
@@ -232,14 +233,14 @@ def test_low_prob_detected_by_entry_price() -> None:
     assert b.feature_vector.get("is_low_prob") is True
 
 
-def test_low_prob_requires_tighter_z() -> None:
-    """CORE would pass at z=1.8 (>= 1.5); LOW-PROB demands z >= 2.5."""
+def test_low_prob_blocked_by_very_low_z() -> None:
+    """LOW-PROB (same Z_MIN as CORE=0.3): z=0.1 is below floor."""
     scorer = SignalScoringSystem()
     b = scorer.score(
         **_strong_kwargs(
             entry_price=_low_prob_price(),
-            mispricing=_mispricing(z=-1.8),
-            net_edge_pct=settings.low_prob_min_edge_pct + 1.0,
+            mispricing=_mispricing(z=-0.1),
+            net_edge_pct=5.0,
             timing=_timing(1),
         )
     )
@@ -247,19 +248,19 @@ def test_low_prob_requires_tighter_z() -> None:
     assert "z_below_min" in b.gate_reason
 
 
-def test_low_prob_requires_tighter_edge() -> None:
-    """CORE would pass at edge=4% (>= 3%); LOW-PROB demands edge >= 8%."""
+def test_low_prob_passes_with_any_positive_edge() -> None:
+    """LOW-PROB MIN_EDGE_PCT is now 0.0 — any positive edge passes."""
     scorer = SignalScoringSystem()
     b = scorer.score(
         **_strong_kwargs(
             entry_price=_low_prob_price(),
-            mispricing=_mispricing(z=-3.0),
-            net_edge_pct=settings.min_edge_pct + 1.0,  # clears CORE, not LOW-PROB
+            mispricing=_mispricing(z=-1.5),
+            net_edge_pct=0.5,  # small but positive
             timing=_timing(1),
         )
     )
-    assert b.passes_trade is False
-    assert "edge_below_min" in b.gate_reason
+    # EV might still reject if net_edge is too low, but edge gate itself passes
+    assert "edge_below_min" not in (b.gate_reason or "")
 
 
 def test_low_prob_rejects_phase_two() -> None:
