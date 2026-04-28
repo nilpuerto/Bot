@@ -493,6 +493,13 @@ class PolymarketClient:
                         "built_order_dict": (
                             built_order.__dict__ if hasattr(built_order, "__dict__") else str(built_order)
                         ),
+                        "built_order_values": (
+                            getattr(getattr(built_order, "order", None), "values", None)
+                        ),
+                        "builder_sig_type": getattr(getattr(client, "builder", None), "sig_type", None),
+                        "builder_funder": getattr(getattr(client, "builder", None), "funder", None),
+                        "settings_sig_type": getattr(settings, "polymarket_signature_type", None),
+                        "settings_funder": getattr(settings, "effective_funder_address", None),
                     },
                 }
                 try:
@@ -500,7 +507,15 @@ class PolymarketClient:
                         _f.write(json.dumps(_built_payload, default=str) + "\n")
                 except Exception:
                     pass
-                logger.info("debug_order_built_before_post", built_order=repr(built_order))
+                logger.info(
+                    "debug_order_built_before_post",
+                    built_order=repr(built_order),
+                    built_order_values=getattr(getattr(built_order, "order", None), "values", None),
+                    builder_sig_type=getattr(getattr(client, "builder", None), "sig_type", None),
+                    builder_funder=getattr(getattr(client, "builder", None), "funder", None),
+                    settings_sig_type=getattr(settings, "polymarket_signature_type", None),
+                    settings_funder=getattr(settings, "effective_funder_address", None),
+                )
                 # #endregion
 
                 signed = client.post_order(built_order)
