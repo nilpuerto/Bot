@@ -413,7 +413,44 @@ class PolymarketClient:
         client = self._ensure_clob()
 
         def _submit() -> dict:
+            import inspect
+            import json
+            import time
+
             from py_clob_client.clob_types import OrderArgs  # type: ignore
+
+            # #region agent debug log
+            _oa_sig = str(inspect.signature(OrderArgs.__init__))
+            _oa_fields = [p for p in inspect.signature(OrderArgs.__init__).parameters]
+            _has_neg_risk = "neg_risk" in _oa_fields
+            _has_tick_size = "tick_size" in _oa_fields
+            _debug_pre = {
+                "sessionId": "f71d1d", "runId": "run1",
+                "hypothesisId": "H-A,H-B,H-C,H-D,H-E",
+                "location": "polymarket_client.py:place_order:pre",
+                "timestamp": int(time.time() * 1000),
+                "message": "order_args_pre_submit",
+                "data": {
+                    "token_id": token_id,
+                    "side": side.upper(),
+                    "price": price,
+                    "size_shares": size_shares,
+                    "orderargs_signature": _oa_sig,
+                    "has_neg_risk_field": _has_neg_risk,
+                    "has_tick_size_field": _has_tick_size,
+                },
+            }
+            try:
+                with open("/root/Bot/debug-f71d1d.log", "a") as _f:
+                    _f.write(json.dumps(_debug_pre) + "\n")
+            except Exception:
+                pass
+            logger.info("debug_order_pre_submit",
+                        token_id=token_id, price=price, side=side,
+                        has_neg_risk_field=_has_neg_risk,
+                        has_tick_size_field=_has_tick_size,
+                        orderargs_sig=_oa_sig)
+            # #endregion
 
             order_args = OrderArgs(
                 token_id=token_id,
@@ -421,7 +458,50 @@ class PolymarketClient:
                 price=price,
                 size=size_shares,
             )
-            signed = client.create_and_post_order(order_args)
+
+            # #region agent debug log
+            _debug_args = {
+                "sessionId": "f71d1d", "runId": "run1",
+                "hypothesisId": "H-A,H-B",
+                "location": "polymarket_client.py:place_order:order_args",
+                "timestamp": int(time.time() * 1000),
+                "message": "order_args_built",
+                "data": {"order_args_repr": repr(order_args)},
+            }
+            try:
+                with open("/root/Bot/debug-f71d1d.log", "a") as _f:
+                    _f.write(json.dumps(_debug_args) + "\n")
+            except Exception:
+                pass
+            logger.info("debug_order_args_built", order_args_repr=repr(order_args))
+            # #endregion
+
+            try:
+                signed = client.create_and_post_order(order_args)
+            except Exception as _exc:
+                import traceback as _tb
+                # #region agent debug log
+                _debug_err = {
+                    "sessionId": "f71d1d", "runId": "run1",
+                    "hypothesisId": "H-A,H-B,H-C,H-D,H-E",
+                    "location": "polymarket_client.py:place_order:exception",
+                    "timestamp": int(time.time() * 1000),
+                    "message": "order_submit_exception",
+                    "data": {
+                        "exc_type": type(_exc).__name__,
+                        "exc_str": str(_exc),
+                        "traceback": _tb.format_exc()[-2000:],
+                    },
+                }
+                try:
+                    with open("/root/Bot/debug-f71d1d.log", "a") as _f:
+                        _f.write(json.dumps(_debug_err) + "\n")
+                except Exception:
+                    pass
+                logger.info("debug_order_exception",
+                            exc_type=type(_exc).__name__, exc_str=str(_exc))
+                # #endregion
+                raise
             return signed if isinstance(signed, dict) else {"raw": str(signed)}
 
         result = await asyncio.to_thread(_submit)
