@@ -417,7 +417,7 @@ class PolymarketClient:
             import json
             import time
 
-            from py_clob_client.clob_types import OrderArgs, PartialCreateOrderOptions  # type: ignore
+            from py_clob_client.clob_types import OrderArgs  # type: ignore
 
             # #region agent debug log
             _oa_sig = str(inspect.signature(OrderArgs.__init__))
@@ -481,16 +481,26 @@ class PolymarketClient:
             except Exception as _exc:
                 import traceback as _tb
                 _exc_str = str(_exc)
+                _client_sig_type = getattr(client, "signature_type", None)
+                _client_funder = getattr(client, "funder", None)
+                _client_mode = {
+                    "sig_type": _client_sig_type,
+                    "funder": _client_funder,
+                    "has_create_order": hasattr(client, "create_order"),
+                    "has_create_and_post_order": hasattr(client, "create_and_post_order"),
+                }
                 # #region agent debug log
                 _debug_err = {
-                    "sessionId": "f71d1d", "runId": "run1",
-                    "hypothesisId": "H-C,H-D,H-E,H-F",
-                    "location": "polymarket_client.py:place_order:first_exception",
+                    "sessionId": "f71d1d", "runId": "run2",
+                    "hypothesisId": "H-NONCE,H-EXP,H-SAFE",
+                    "location": "polymarket_client.py:place_order:exception",
                     "timestamp": int(time.time() * 1000),
-                    "message": "order_submit_exception_first_try",
+                    "message": "order_submit_exception",
                     "data": {
                         "exc_type": type(_exc).__name__,
                         "exc_str": _exc_str,
+                        "order_args_repr": repr(order_args),
+                        "client_mode": _client_mode,
                         "traceback": _tb.format_exc()[-2000:],
                     },
                 }
@@ -500,74 +510,16 @@ class PolymarketClient:
                 except Exception:
                     pass
                 logger.info(
-                    "debug_order_exception_first_try",
+                    "debug_order_exception",
                     exc_type=type(_exc).__name__,
                     exc_str=_exc_str,
+                    client_sig_type=_client_sig_type,
+                    client_funder=_client_funder,
+                    nonce=order_args.nonce,
+                    expiration=order_args.expiration,
                 )
                 # #endregion
-
-                # Runtime-proven hot path: CLOB can reject with
-                # `order_version_mismatch` when order options are omitted.
-                if "order_version_mismatch" not in _exc_str:
-                    raise
-
-                retry_options = [
-                    {"tick_size": "0.01", "neg_risk": True},
-                    {"tick_size": "0.01", "neg_risk": False},
-                    {"tick_size": "0.001", "neg_risk": True},
-                    {"tick_size": "0.001", "neg_risk": False},
-                ]
-                _last_exc = _exc
-                for _idx, _opt in enumerate(retry_options, start=1):
-                    try:
-                        options = PartialCreateOrderOptions(
-                            tick_size=_opt["tick_size"],
-                            neg_risk=_opt["neg_risk"],
-                        )
-                        # #region agent debug log
-                        _debug_retry = {
-                            "sessionId": "f71d1d", "runId": "run1",
-                            "hypothesisId": "H-F",
-                            "location": "polymarket_client.py:place_order:retry",
-                            "timestamp": int(time.time() * 1000),
-                            "message": "order_submit_retry_attempt",
-                            "data": {
-                                "attempt": _idx,
-                                "tick_size": _opt["tick_size"],
-                                "neg_risk": _opt["neg_risk"],
-                            },
-                        }
-                        try:
-                            with open("/root/Bot/debug-f71d1d.log", "a") as _f:
-                                _f.write(json.dumps(_debug_retry) + "\n")
-                        except Exception:
-                            pass
-                        logger.info(
-                            "debug_order_retry_attempt",
-                            attempt=_idx,
-                            tick_size=_opt["tick_size"],
-                            neg_risk=_opt["neg_risk"],
-                        )
-                        # #endregion
-                        signed = client.create_and_post_order(order_args, options)
-                        logger.info(
-                            "debug_order_retry_success",
-                            attempt=_idx,
-                            tick_size=_opt["tick_size"],
-                            neg_risk=_opt["neg_risk"],
-                        )
-                        break
-                    except Exception as _retry_exc:
-                        _last_exc = _retry_exc
-                        logger.info(
-                            "debug_order_retry_failed",
-                            attempt=_idx,
-                            tick_size=_opt["tick_size"],
-                            neg_risk=_opt["neg_risk"],
-                            exc=str(_retry_exc),
-                        )
-                else:
-                    raise _last_exc
+                raise
             return signed if isinstance(signed, dict) else {"raw": str(signed)}
 
         result = await asyncio.to_thread(_submit)
