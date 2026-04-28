@@ -477,7 +477,33 @@ class PolymarketClient:
             # #endregion
 
             try:
-                signed = client.create_and_post_order(order_args)
+                # Build first so we can inspect the signed envelope that goes
+                # to CLOB (signatureType/maker/nonce/expiration).
+                built_order = client.create_order(order_args)
+                # #region agent debug log
+                _built_payload = {
+                    "sessionId": "f71d1d",
+                    "runId": "run4",
+                    "hypothesisId": "H-SIGNED-STRUCT",
+                    "location": "polymarket_client.py:place_order:built_order",
+                    "timestamp": int(time.time() * 1000),
+                    "message": "order_built_before_post",
+                    "data": {
+                        "built_order_repr": repr(built_order),
+                        "built_order_dict": (
+                            built_order.__dict__ if hasattr(built_order, "__dict__") else str(built_order)
+                        ),
+                    },
+                }
+                try:
+                    with open("/root/Bot/debug-f71d1d.log", "a") as _f:
+                        _f.write(json.dumps(_built_payload, default=str) + "\n")
+                except Exception:
+                    pass
+                logger.info("debug_order_built_before_post", built_order=repr(built_order))
+                # #endregion
+
+                signed = client.post_order(built_order)
             except Exception as _exc:
                 import traceback as _tb
                 _exc_str = str(_exc)
@@ -519,81 +545,7 @@ class PolymarketClient:
                     expiration=order_args.expiration,
                 )
                 # #endregion
-                if "order_version_mismatch" not in _exc_str:
-                    raise
-
-                # Runtime hypothesis H-NONCE: py-clob-client uses whatever
-                # nonce/expiration are in OrderArgs. Our OrderArgs currently
-                # default to nonce=0/expiration=0. Retry once with a fresh
-                # nonce and short GTD-style expiration to test if the version
-                # mismatch is really a stale/invalid order envelope.
-                _now_s = int(time.time())
-                _nonce_ms = int(time.time() * 1000)
-                retry_args = OrderArgs(
-                    token_id=token_id,
-                    side=side.upper(),
-                    price=price,
-                    size=size_shares,
-                    nonce=_nonce_ms,
-                    expiration=_now_s + 3600,
-                )
-                # #region agent debug log
-                _debug_retry_nonce = {
-                    "sessionId": "f71d1d", "runId": "run3",
-                    "hypothesisId": "H-NONCE,H-EXP",
-                    "location": "polymarket_client.py:place_order:retry_nonce",
-                    "timestamp": int(time.time() * 1000),
-                    "message": "order_submit_retry_nonce",
-                    "data": {
-                        "nonce": retry_args.nonce,
-                        "expiration": retry_args.expiration,
-                        "retry_args_repr": repr(retry_args),
-                    },
-                }
-                try:
-                    with open("/root/Bot/debug-f71d1d.log", "a") as _f:
-                        _f.write(json.dumps(_debug_retry_nonce) + "\n")
-                except Exception:
-                    pass
-                logger.info(
-                    "debug_order_retry_nonce_attempt",
-                    nonce=retry_args.nonce,
-                    expiration=retry_args.expiration,
-                )
-                # #endregion
-                try:
-                    signed = client.create_and_post_order(retry_args)
-                    logger.info(
-                        "debug_order_retry_nonce_success",
-                        nonce=retry_args.nonce,
-                        expiration=retry_args.expiration,
-                    )
-                except Exception as _retry_exc:
-                    # #region agent debug log
-                    _debug_retry_fail = {
-                        "sessionId": "f71d1d", "runId": "run3",
-                        "hypothesisId": "H-NONCE,H-EXP",
-                        "location": "polymarket_client.py:place_order:retry_nonce_exception",
-                        "timestamp": int(time.time() * 1000),
-                        "message": "order_submit_retry_nonce_exception",
-                        "data": {
-                            "exc_type": type(_retry_exc).__name__,
-                            "exc_str": str(_retry_exc),
-                        },
-                    }
-                    try:
-                        with open("/root/Bot/debug-f71d1d.log", "a") as _f:
-                            _f.write(json.dumps(_debug_retry_fail) + "\n")
-                    except Exception:
-                        pass
-                    logger.info(
-                        "debug_order_retry_nonce_failed",
-                        nonce=retry_args.nonce,
-                        expiration=retry_args.expiration,
-                        exc=str(_retry_exc),
-                    )
-                    # #endregion
-                    raise
+                raise
             return signed if isinstance(signed, dict) else {"raw": str(signed)}
 
         result = await asyncio.to_thread(_submit)
