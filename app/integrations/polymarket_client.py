@@ -413,44 +413,7 @@ class PolymarketClient:
         client = self._ensure_clob()
 
         def _submit() -> dict:
-            import inspect
-            import json
-            import time
-
             from py_clob_client.clob_types import OrderArgs  # type: ignore
-
-            # #region agent debug log
-            _oa_sig = str(inspect.signature(OrderArgs.__init__))
-            _oa_fields = [p for p in inspect.signature(OrderArgs.__init__).parameters]
-            _has_neg_risk = "neg_risk" in _oa_fields
-            _has_tick_size = "tick_size" in _oa_fields
-            _debug_pre = {
-                "sessionId": "f71d1d", "runId": "run1",
-                "hypothesisId": "H-A,H-B,H-C,H-D,H-E",
-                "location": "polymarket_client.py:place_order:pre",
-                "timestamp": int(time.time() * 1000),
-                "message": "order_args_pre_submit",
-                "data": {
-                    "token_id": token_id,
-                    "side": side.upper(),
-                    "price": price,
-                    "size_shares": size_shares,
-                    "orderargs_signature": _oa_sig,
-                    "has_neg_risk_field": _has_neg_risk,
-                    "has_tick_size_field": _has_tick_size,
-                },
-            }
-            try:
-                with open("/root/Bot/debug-f71d1d.log", "a") as _f:
-                    _f.write(json.dumps(_debug_pre) + "\n")
-            except Exception:
-                pass
-            logger.info("debug_order_pre_submit",
-                        token_id=token_id, price=price, side=side,
-                        has_neg_risk_field=_has_neg_risk,
-                        has_tick_size_field=_has_tick_size,
-                        orderargs_sig=_oa_sig)
-            # #endregion
 
             order_args = OrderArgs(
                 token_id=token_id,
@@ -459,108 +422,7 @@ class PolymarketClient:
                 size=size_shares,
             )
 
-            # #region agent debug log
-            _debug_args = {
-                "sessionId": "f71d1d", "runId": "run1",
-                "hypothesisId": "H-A,H-B",
-                "location": "polymarket_client.py:place_order:order_args",
-                "timestamp": int(time.time() * 1000),
-                "message": "order_args_built",
-                "data": {"order_args_repr": repr(order_args)},
-            }
-            try:
-                with open("/root/Bot/debug-f71d1d.log", "a") as _f:
-                    _f.write(json.dumps(_debug_args) + "\n")
-            except Exception:
-                pass
-            logger.info("debug_order_args_built", order_args_repr=repr(order_args))
-            # #endregion
-
-            try:
-                # Build first so we can inspect the signed envelope that goes
-                # to CLOB (signatureType/maker/nonce/expiration).
-                built_order = client.create_order(order_args)
-                # #region agent debug log
-                _built_payload = {
-                    "sessionId": "f71d1d",
-                    "runId": "run4",
-                    "hypothesisId": "H-SIGNED-STRUCT",
-                    "location": "polymarket_client.py:place_order:built_order",
-                    "timestamp": int(time.time() * 1000),
-                    "message": "order_built_before_post",
-                    "data": {
-                        "built_order_repr": repr(built_order),
-                        "built_order_dict": (
-                            built_order.__dict__ if hasattr(built_order, "__dict__") else str(built_order)
-                        ),
-                        "built_order_values": (
-                            getattr(getattr(built_order, "order", None), "values", None)
-                        ),
-                        "builder_sig_type": getattr(getattr(client, "builder", None), "sig_type", None),
-                        "builder_funder": getattr(getattr(client, "builder", None), "funder", None),
-                        "settings_sig_type": getattr(settings, "polymarket_signature_type", None),
-                        "settings_funder": getattr(settings, "effective_funder_address", None),
-                    },
-                }
-                try:
-                    with open("/root/Bot/debug-f71d1d.log", "a") as _f:
-                        _f.write(json.dumps(_built_payload, default=str) + "\n")
-                except Exception:
-                    pass
-                logger.info(
-                    "debug_order_built_before_post",
-                    built_order=repr(built_order),
-                    built_order_values=getattr(getattr(built_order, "order", None), "values", None),
-                    builder_sig_type=getattr(getattr(client, "builder", None), "sig_type", None),
-                    builder_funder=getattr(getattr(client, "builder", None), "funder", None),
-                    settings_sig_type=getattr(settings, "polymarket_signature_type", None),
-                    settings_funder=getattr(settings, "effective_funder_address", None),
-                )
-                # #endregion
-
-                signed = client.post_order(built_order)
-            except Exception as _exc:
-                import traceback as _tb
-                _exc_str = str(_exc)
-                _client_sig_type = getattr(client, "signature_type", None)
-                _client_funder = getattr(client, "funder", None)
-                _client_mode = {
-                    "sig_type": _client_sig_type,
-                    "funder": _client_funder,
-                    "has_create_order": hasattr(client, "create_order"),
-                    "has_create_and_post_order": hasattr(client, "create_and_post_order"),
-                }
-                # #region agent debug log
-                _debug_err = {
-                    "sessionId": "f71d1d", "runId": "run2",
-                    "hypothesisId": "H-NONCE,H-EXP,H-SAFE",
-                    "location": "polymarket_client.py:place_order:exception",
-                    "timestamp": int(time.time() * 1000),
-                    "message": "order_submit_exception",
-                    "data": {
-                        "exc_type": type(_exc).__name__,
-                        "exc_str": _exc_str,
-                        "order_args_repr": repr(order_args),
-                        "client_mode": _client_mode,
-                        "traceback": _tb.format_exc()[-2000:],
-                    },
-                }
-                try:
-                    with open("/root/Bot/debug-f71d1d.log", "a") as _f:
-                        _f.write(json.dumps(_debug_err) + "\n")
-                except Exception:
-                    pass
-                logger.info(
-                    "debug_order_exception",
-                    exc_type=type(_exc).__name__,
-                    exc_str=_exc_str,
-                    client_sig_type=_client_sig_type,
-                    client_funder=_client_funder,
-                    nonce=order_args.nonce,
-                    expiration=order_args.expiration,
-                )
-                # #endregion
-                raise
+            signed = client.create_and_post_order(order_args)
             return signed if isinstance(signed, dict) else {"raw": str(signed)}
 
         result = await asyncio.to_thread(_submit)
