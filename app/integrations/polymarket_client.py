@@ -42,8 +42,8 @@ logger = get_logger(__name__)
 GAMMA_BASE = "https://gamma-api.polymarket.com"
 DATA_BASE = "https://data-api.polymarket.com"
 CLOB_BASE = "https://clob.polymarket.com"
-# USDC.e on Polygon (Polymarket settles in USDC.e)
-POLYGON_USDC_ADDRESS = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+# pUSD on Polygon (Polymarket settlement collateral after migration)
+POLYGON_USDC_ADDRESS = "0xC011a7E12a19f7B1f670d46F03B03f3342E82DFB"
 ERC20_BALANCE_ABI = [
     {
         "constant": True,
