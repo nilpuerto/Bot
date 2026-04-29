@@ -312,6 +312,15 @@ class Settings(BaseSettings):
     # DO NOT participate in ``passes_trade`` anymore.
     score_threshold_alert: float = Field(default=60.0, alias="SCORE_THRESHOLD_ALERT")
     score_threshold_trade: float = Field(default=75.0, alias="SCORE_THRESHOLD_TRADE")
+    # Telegram signal noise control (display-only). These do NOT affect
+    # auto-trade execution; they only decide whether a passed signal is
+    # broadcast as a "NEW PRYM SIGNAL" notification.
+    telegram_signal_min_score: float = Field(
+        default=35.0, alias="TELEGRAM_SIGNAL_MIN_SCORE"
+    )
+    telegram_signal_min_urgency: int = Field(
+        default=3, alias="TELEGRAM_SIGNAL_MIN_URGENCY"
+    )
 
     # ---- Microstructure / cost model -----------------------------------
     microstructure_max_spread: float = Field(

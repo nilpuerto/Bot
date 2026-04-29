@@ -694,7 +694,17 @@ class Orchestrator:
                 )
             return
 
-        notify_users = [u for u in users if u.is_active and u.notifications_enabled]
+        # Keep Telegram usable: suppress low-quality/low-urgency push noise
+        # while leaving the trade engine unchanged.
+        should_broadcast_signal = (
+            float(score.total) >= float(settings.telegram_signal_min_score)
+            and int(analysis.urgency) >= int(settings.telegram_signal_min_urgency)
+        )
+        notify_users = (
+            [u for u in users if u.is_active and u.notifications_enabled]
+            if should_broadcast_signal
+            else []
+        )
         assert self._app is not None
         if notify_users:
             await broadcast_signal(
