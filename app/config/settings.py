@@ -249,7 +249,7 @@ class Settings(BaseSettings):
     min_trade_usd: float = Field(default=2.0, alias="MIN_TRADE_USD")
     # Absolute ceiling regardless of balance (e.g. don't risk $500 even on a
     # large account — keep each single bet bounded).
-    max_trade_usd: float = Field(default=25.0, alias="MAX_TRADE_USD")
+    max_trade_usd: float = Field(default=10.0, alias="MAX_TRADE_USD")
     # Retained for backwards compatibility — maps to the high-confidence cap.
     high_confidence_max_trade_usd: float = Field(
         default=25.0, alias="HIGH_CONFIDENCE_MAX_USD"
@@ -324,7 +324,7 @@ class Settings(BaseSettings):
 
     # ---- Microstructure / cost model -----------------------------------
     microstructure_max_spread: float = Field(
-        default=0.02, alias="MICROSTRUCTURE_MAX_SPREAD"
+        default=0.06, alias="MICROSTRUCTURE_MAX_SPREAD"
     )
     # Minimum net edge (after spread + slippage + fees) required to trade.
     # This is now the *primary* gate on every trade, not a secondary check.
@@ -352,7 +352,7 @@ class Settings(BaseSettings):
     # Minimum fraction of the intended notional that must be fillable
     # from the top of book for the signal to trade.  Prevents partial
     # fills that degrade the effective edge.
-    min_fill_ratio: float = Field(default=0.75, alias="MIN_FILL_RATIO")
+    min_fill_ratio: float = Field(default=0.20, alias="MIN_FILL_RATIO")
 
     # ---- LOW-PROB gate profile ----------------------------------------
     # Entries whose price is at or below ``low_prob_entry_price`` are
