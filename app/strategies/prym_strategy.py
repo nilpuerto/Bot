@@ -6,8 +6,10 @@ before we can trade.  Short-circuiting on the cheapest checks first
 keeps the latency budget tight:
 
 1. **Direction gate** — neutral AI impact = veto.
-2. **Price bounds** — entry price ∈ [``entry_min_price``,
-   ``entry_max_price``].
+2. **Entry token clamps** —
+   ``entry_min_price`` / ``entry_max_price`` /
+   optional ``min_implied_prob`` / ``max_implied_prob`` via
+   :func:`~app.services.entry_filters.entry_token_gate_fail_reason`.
 3. **Hard-gate cluster** — delegated to ``ScoreBreakdown.passes_trade``
    which combines freshness, phase, |z| ≥ Z_MIN, net_edge ≥ MIN_EDGE
    and fill ≥ MIN_FILL_RATIO.  The 0..100 score is cosmetic and is
@@ -28,6 +30,7 @@ from typing import Optional
 from app.config.settings import settings
 from app.integrations.mistral_client import AIAnalysis
 from app.integrations.polymarket_client import MarketSnapshot, OrderBook
+from app.services.entry_filters import entry_token_gate_fail_reason
 from app.services.execution_cost import ExecutionCost, ExecutionCostModel
 from app.services.signal_scoring import ScoreBreakdown
 from app.services.sizing import SizingQuote, compute_sizing
@@ -111,13 +114,17 @@ class PrymStrategy(BaseStrategy):
         if price is None:
             return StrategyVerdict(StrategyDecision(False, "no_price", side=side))
 
-        # 2. Price bounds.
-        if price < self.min_price or price > self.max_price:
+        entry_reject = entry_token_gate_fail_reason(
+            price,
+            entry_min_override=self.min_price,
+            entry_max_override=self.max_price,
+        )
+        if entry_reject:
             return StrategyVerdict(
-                StrategyDecision(False, f"price_out_of_range_{price:.3f}", side=side)
+                StrategyDecision(False, f"entry_gate_{entry_reject}", side=side)
             )
 
-        # 3. Hard-gate cluster (measurable).  The 0..100 score is
+        # 2. Hard-gate cluster (measurable).  The 0..100 score is
         # cosmetic — the real gates live on ``ScoreBreakdown``.
         if not score.passes_trade:
             return StrategyVerdict(
@@ -128,7 +135,7 @@ class PrymStrategy(BaseStrategy):
                 )
             )
 
-        # 4. Edge after costs (reuse pre-computed when available).
+        # 3. Edge after costs (reuse pre-computed when available).
         if precomputed_cost is not None:
             if not precomputed_cost.passes:
                 return StrategyVerdict(

@@ -32,6 +32,7 @@ from app.database.repositories.signals_repo import SignalsRepository
 from app.database.session import session_scope
 from app.services.sizing import band_bounds, band_for_score, band_pct, suggest_amount
 from app.services.strategy_engine import default_strategy
+from app.services.entry_filters import entry_token_gate_fail_reason
 from app.telegram.auth import _resolve_user
 from app.telegram.formatters import escape_md
 from app.utils.logger import get_logger
@@ -161,6 +162,13 @@ async def _amount_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if price is None:
         await update.effective_message.reply_text(
             "No live price\\.", parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return ConversationHandler.END
+
+    rej = entry_token_gate_fail_reason(price)
+    if rej:
+        await update.effective_message.reply_text(
+            f"Entry blocked ({rej}). Adjust ENTRY_MAX_PRICE or IMPLIED bounds in .env."
         )
         return ConversationHandler.END
 

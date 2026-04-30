@@ -43,6 +43,7 @@ from app.database.session import session_scope
 from app.integrations.mistral_client import AIAnalysis, MistralClient
 from app.integrations.polymarket_client import MarketSnapshot, PolymarketClient
 from app.services.balance import LiveBalanceProvider
+from app.services.entry_filters import entry_token_gate_fail_reason
 from app.services.execution_cost import ExecutionCost, ExecutionCostModel
 from app.services.market_intelligence import (
     IntelligenceReport,
@@ -457,6 +458,20 @@ class Orchestrator:
         entry_price = (
             market.best_yes_price if side == "yes" else market.best_no_price
         ) or 0.0
+        entry_reject = entry_token_gate_fail_reason(
+            entry_price if entry_price > 0 else None
+        )
+        if entry_reject:
+            logger.info(
+                "news_dropped_entry_price_gate",
+                market_id=market.id,
+                side=side,
+                entry_price=entry_price,
+                reason=entry_reject,
+                entry_max=float(settings.entry_max_price),
+                entry_min=float(settings.entry_min_price),
+            )
+            return "handled"
         target_price = min(
             0.999,
             max(0.001, entry_price * (1 + settings.take_profit_pct / 100)),
@@ -723,6 +738,16 @@ class Orchestrator:
         if not (decision_ok and score.passes_trade):
             return
 
+        fail = entry_token_gate_fail_reason(float(signal.market_price or 0))
+        if fail:
+            logger.warning(
+                "auto_trade_skipped_post_signal_entry_gate",
+                signal_id=signal.id,
+                reason=fail,
+                market_price=float(signal.market_price or 0),
+            )
+            return
+
         strategy = default_strategy()
         net_edge_pct = float(cost.net_edge_pct) if cost and cost.net_edge_pct is not None else None
         abs_z = (
@@ -956,6 +981,18 @@ class Orchestrator:
         entry_price = (
             market.best_yes_price if side == "yes" else market.best_no_price
         ) or 0.0
+        entry_reject = entry_token_gate_fail_reason(
+            entry_price if entry_price > 0 else None
+        )
+        if entry_reject:
+            logger.info(
+                "cluster_dropped_entry_price_gate",
+                market_id=market.id,
+                side=side,
+                entry_price=entry_price,
+                reason=entry_reject,
+            )
+            return
         target_price = min(
             0.999,
             max(0.001, entry_price * (1 + settings.take_profit_pct / 100)),

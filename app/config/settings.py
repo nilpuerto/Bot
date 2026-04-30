@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -267,8 +267,25 @@ class Settings(BaseSettings):
     )
     stop_loss_pct: float = Field(default=10.0, alias="STOP_LOSS_PCT")
     take_profit_pct: float = Field(default=15.0, alias="TAKE_PROFIT_PCT")
-    entry_max_price: float = Field(default=0.35, alias="ENTRY_MAX_PRICE")
+    # HARD cap / floor on traded-outcome mid (YES or NO depending on side).
+    # ``AUTO`` path used to skip :class:`PrymStrategy` ``evaluate()`` so
+    # expensive tails could slip through — :func:`entry_token_gate_fail_reason`
+    # enforces this on every programmatic open.  ``MAX_ENTRY_PRICE`` is an
+    # accepted alias (shared idiom with other bots).
+    entry_max_price: float = Field(
+        default=0.15,
+        validation_alias=AliasChoices("ENTRY_MAX_PRICE", "MAX_ENTRY_PRICE"),
+    )
     entry_min_price: float = Field(default=0.03, alias="ENTRY_MIN_PRICE")
+    # Optional implied-probability band on the *traded* token (≈ mid price).
+    # Example: ``MIN_IMPLIED_PROB=0.05`` blocks sub-5¢ dust; ``MAX_IMPLIED_PROB=0.85``
+    # blocks 86¢+ "already decided" entries.  ``None`` = disabled for that bound.
+    min_implied_prob: Optional[float] = Field(
+        default=None, alias="MIN_IMPLIED_PROB"
+    )
+    max_implied_prob: Optional[float] = Field(
+        default=None, alias="MAX_IMPLIED_PROB"
+    )
     alert_score_threshold: float = Field(default=60.0, alias="ALERT_SCORE_THRESHOLD")
     auto_score_threshold: float = Field(default=75.0, alias="AUTO_SCORE_THRESHOLD")
     auto_urgency_threshold: int = Field(default=8, alias="AUTO_URGENCY_THRESHOLD")
@@ -370,7 +387,7 @@ class Settings(BaseSettings):
     #   * ``low_prob_min_edge_pct`` tighter edge   (default  8 %)
     #   * phase ∈ {1}  — must be the *initial* repricing move
     low_prob_entry_price: float = Field(
-        default=0.10, alias="LOW_PROB_ENTRY_PRICE"
+        default=0.15, alias="LOW_PROB_ENTRY_PRICE"
     )
     low_prob_z_min: float = Field(default=2.0, alias="LOW_PROB_Z_MIN")
     low_prob_min_edge_pct: float = Field(
@@ -789,6 +806,15 @@ class Settings(BaseSettings):
         coming in via Polymarket's Gnosis Safe proxy must override this.
         """
         return self.polymarket_funder_address or self.wallet_address
+
+    @model_validator(mode="after")
+    def _implied_prob_consistency(self) -> "Settings":
+        mn, mx = self.min_implied_prob, self.max_implied_prob
+        if mn is not None and mx is not None and float(mn) > float(mx):
+            raise ValueError(
+                "MIN_IMPLIED_PROB must be less than or equal to MAX_IMPLIED_PROB"
+            )
+        return self
 
     @model_validator(mode="after")
     def _apply_relayer_fallbacks(self) -> "Settings":

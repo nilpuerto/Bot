@@ -22,6 +22,7 @@ from app.database.repositories.users_repo import UsersRepository
 from app.database.session import session_scope
 from app.integrations.polymarket_client import MarketSnapshot
 from app.services.strategy_engine import default_strategy
+from app.services.entry_filters import entry_token_gate_fail_reason
 from app.telegram.auth import _resolve_user
 from app.telegram.formatters import escape_md, mode_changed
 from app.utils.logger import get_logger
@@ -106,6 +107,14 @@ async def _handle_buy(
     price = market.best_yes_price if side == "yes" else market.best_no_price
     if price is None:
         await query.answer("No live price.", show_alert=True)
+        return
+
+    rej = entry_token_gate_fail_reason(price)
+    if rej:
+        await query.answer(
+            f"Entry blocked ({rej}) — tune ENTRY_MAX_PRICE / IMPLIED bounds in .env.",
+            show_alert=True,
+        )
         return
 
     # Use the LiveBalanceProvider when available so SEMI-mode approvals
