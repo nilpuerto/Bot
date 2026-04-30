@@ -5,7 +5,7 @@ The contract under test:
 * A signer alone (``WALLET_ADDRESS`` + ``WALLET_PRIVATE_KEY``) is enough
   to mark the bot as live-capable.  The three ``POLYMARKET_API_*`` env
   vars are *optional*; when blank, the client must derive them from the
-  signer at first use via ``ClobClient.create_or_derive_api_creds``.
+  signer at first use via ``ClobClient.create_or_derive_api_key``.
 
 * When the user pre-fills the three API vars, ``_ensure_clob`` must
   honour them verbatim and skip the derive step (no extra signature).
@@ -13,7 +13,7 @@ The contract under test:
 * Successive ``_ensure_clob`` calls inside the same process must reuse
   the cached client (and, when relevant, the cached derived creds).
 
-These behaviours are mocked end-to-end against ``py_clob_client`` so the
+These behaviours are mocked end-to-end against ``py_clob_client_v2`` so the
 suite stays offline.
 """
 from __future__ import annotations
@@ -31,12 +31,12 @@ from app.integrations.polymarket_client import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers — install a fake ``py_clob_client`` so we don't actually hit Polymarket
+# Helpers — install a fake ``py_clob_client_v2`` so we don't hit Polymarket
 # ---------------------------------------------------------------------------
 
 
 def _install_fake_clob_client(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
-    """Replace ``py_clob_client.client`` and ``.clob_types`` with stubs.
+    """Replace ``py_clob_client_v2.client`` and ``.clob_types`` with stubs.
 
     Returns the call-tracking dict so individual tests can assert on it.
     """
@@ -65,25 +65,25 @@ def _install_fake_clob_client(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]
             self._creds = creds
             calls["set_api_creds_with"] = creds
 
-        def create_or_derive_api_creds(self) -> Any:
+        def create_or_derive_api_key(self) -> Any:
             calls["create_or_derive_calls"] += 1
             if calls["derive_should_raise"]:
                 raise RuntimeError("simulated derive failure")
             return _FakeApiCreds("derived-key", "derived-secret", "derived-pass")
 
-    fake_client_module = types.ModuleType("py_clob_client.client")
+    fake_client_module = types.ModuleType("py_clob_client_v2.client")
     fake_client_module.ClobClient = _FakeClobClient  # type: ignore[attr-defined]
 
-    fake_types_module = types.ModuleType("py_clob_client.clob_types")
+    fake_types_module = types.ModuleType("py_clob_client_v2.clob_types")
     fake_types_module.ApiCreds = _FakeApiCreds  # type: ignore[attr-defined]
 
-    fake_pkg = types.ModuleType("py_clob_client")
+    fake_pkg = types.ModuleType("py_clob_client_v2")
     fake_pkg.client = fake_client_module  # type: ignore[attr-defined]
     fake_pkg.clob_types = fake_types_module  # type: ignore[attr-defined]
 
-    monkeypatch.setitem(sys.modules, "py_clob_client", fake_pkg)
-    monkeypatch.setitem(sys.modules, "py_clob_client.client", fake_client_module)
-    monkeypatch.setitem(sys.modules, "py_clob_client.clob_types", fake_types_module)
+    monkeypatch.setitem(sys.modules, "py_clob_client_v2", fake_pkg)
+    monkeypatch.setitem(sys.modules, "py_clob_client_v2.client", fake_client_module)
+    monkeypatch.setitem(sys.modules, "py_clob_client_v2.clob_types", fake_types_module)
 
     return calls
 

@@ -5,7 +5,7 @@ Two implementations behind one async interface:
 * **Simulation** (``SIMULATION_MODE=true`` or no CLOB creds): fill at the
   current price, mark the trade ``is_simulated=True``.  No on-chain activity.
 * **Real**: balance-check via web3 USDC.e, translate USD→shares, sign and
-  submit the order through ``py-clob-client``.  Any failure transitions the
+  submit the order through ``py-clob-client-v2``.  Any failure transitions the
   trade to ``failed`` rather than leaving it in a limbo state.
 
 Callers always receive a :class:`ExecutionResult`.  They are never required

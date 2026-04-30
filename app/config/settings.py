@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     # ``POLYMARKET_API_*`` are now OPTIONAL.  If left blank, the bot will
     # automatically derive them on first use by signing an L1 request with
     # ``WALLET_PRIVATE_KEY`` (this is the canonical Polymarket flow used
-    # by ``py-clob-client.create_or_derive_api_creds``).  The derived
+    # by ``py-clob-client-v2.create_or_derive_api_key``).  The derived
     # credentials are kept only in memory.  Provide them explicitly only
     # if you want to pin a pre-existing key.
     polymarket_api_key: str = Field(default="", alias="POLYMARKET_API_KEY")
@@ -771,7 +771,7 @@ class Settings(BaseSettings):
     def has_explicit_clob_creds(self) -> bool:
         """True iff the three ``POLYMARKET_API_*`` env vars are all set.
 
-        Used to decide whether to skip ``create_or_derive_api_creds`` on
+        Used to decide whether to skip ``create_or_derive_api_key`` on
         client init.  Useful for users who want a long-lived, pinned key.
         """
         return bool(

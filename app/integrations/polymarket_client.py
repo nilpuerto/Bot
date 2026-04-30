@@ -6,7 +6,7 @@ Read side (public, no credentials):
                          https://data-api.polymarket.com
 
 Write side (requires funded Polygon wallet):
-  * ``py-clob-client``  → signs and posts orders.
+  * ``py-clob-client-v2``  → signs and posts orders (CLOB V2).
   * Auth model is **wallet-first**: the only mandatory secret is the
     ``WALLET_PRIVATE_KEY`` of the signer.  The CLOB API key + secret +
     passphrase used by L2 endpoints are auto-derived (or created) on
@@ -152,9 +152,9 @@ class PolymarketClient:
     def __init__(self, timeout: float = 15.0) -> None:
         self._timeout = timeout
         self._http: Optional[httpx.AsyncClient] = None
-        self._clob: Any = None  # lazy — py-clob-client
+        self._clob: Any = None  # lazy — py-clob-client-v2
         # Cache for credentials derived from the signer.  Once we hit
-        # ``create_or_derive_api_creds`` we keep the result in memory so
+        # ``create_or_derive_api_key`` we keep the result in memory so
         # subsequent re-inits (e.g. after a process restart inside the
         # same Python session) don't burn an extra signature.
         self._derived_creds: Any = None
@@ -328,17 +328,15 @@ class PolymarketClient:
         return await asyncio.to_thread(_read_usdc_balance, addr)
 
     def _ensure_clob(self) -> Any:
-        """Lazy-init the py-clob-client.
+        """Lazy-init Polymarket's CLOB V2 client (``py-clob-client-v2``).
 
         Auth flow:
           1. Need a signer.  ``WALLET_PRIVATE_KEY`` is the only hard
              requirement; without it we raise ``PolymarketWriteDisabled``.
           2. If the user pinned a CLOB key via env vars (KEY+SECRET+
              PASSPHRASE), use it as-is.
-          3. Otherwise spin up an L1-only client first, call
-             ``create_or_derive_api_creds`` (signs an EIP-712 message
-             with the wallet) to get the L2 creds, cache them, and apply
-             them to the same client instance via ``set_api_creds``.
+          3. Otherwise call ``create_or_derive_api_key`` (EIP-712 L1) to
+             obtain L2 API creds, cache them, then ``set_api_creds``.
         """
         if self._clob is not None:
             return self._clob
@@ -349,11 +347,11 @@ class PolymarketClient:
                 "are derived automatically from the signer)."
             )
         try:
-            from py_clob_client.client import ClobClient  # type: ignore
-            from py_clob_client.clob_types import ApiCreds  # type: ignore
+            from py_clob_client_v2.client import ClobClient  # type: ignore
+            from py_clob_client_v2.clob_types import ApiCreds  # type: ignore
         except ImportError as exc:
             raise PolymarketWriteDisabled(
-                f"py-clob-client not importable: {exc}"
+                f"py-clob-client-v2 not importable: {exc}"
             ) from exc
 
         sig_type = settings.polymarket_signature_type
@@ -386,7 +384,7 @@ class PolymarketClient:
             logger.info("clob_creds_from_cache")
         else:
             try:
-                creds = client.create_or_derive_api_creds()
+                creds = client.create_or_derive_api_key()
             except Exception as exc:  # noqa: BLE001 — SDK exceptions vary
                 raise PolymarketWriteDisabled(
                     f"Could not derive CLOB API creds from signer: {exc}. "
@@ -413,16 +411,19 @@ class PolymarketClient:
         client = self._ensure_clob()
 
         def _submit() -> dict:
-            from py_clob_client.clob_types import OrderArgs  # type: ignore
+            from py_clob_client_v2.clob_types import OrderArgsV2  # type: ignore
+            from py_clob_client_v2.clob_types import OrderType as ClobOrderType  # type: ignore
 
-            order_args = OrderArgs(
+            order_args = OrderArgsV2(
                 token_id=token_id,
                 side=side.upper(),
                 price=price,
                 size=size_shares,
             )
 
-            signed = client.create_and_post_order(order_args)
+            signed = client.create_and_post_order(
+                order_args, options=None, order_type=ClobOrderType.GTC
+            )
             return signed if isinstance(signed, dict) else {"raw": str(signed)}
 
         result = await asyncio.to_thread(_submit)
@@ -434,7 +435,9 @@ class PolymarketClient:
 
         def _cancel() -> bool:
             try:
-                client.cancel(order_id=order_id)
+                from py_clob_client_v2.clob_types import OrderPayload  # type: ignore
+
+                client.cancel_order(OrderPayload(orderID=order_id))
                 return True
             except Exception as exc:  # pragma: no cover - library exceptions vary
                 logger.error("clob_cancel_error", order_id=order_id, error=str(exc))
