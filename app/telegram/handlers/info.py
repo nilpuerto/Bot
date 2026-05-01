@@ -20,21 +20,35 @@ async def info_handler(
     update: Update, context: ContextTypes.DEFAULT_TYPE, user: User
 ) -> None:
     assert update.effective_message is not None
-    # The LiveBalanceProvider is shared through ``bot_data``; it uses a
-    # short TTL cache so calling /info does not spam the RPC.
-    balance_provider = context.application.bot_data.get("balance_provider")
-    snapshot = await PortfolioService().snapshot(
-        user, balance_provider=balance_provider
-    )
-    text = portfolio_card(snapshot)
     try:
+        # The LiveBalanceProvider is shared through ``bot_data``; it uses a
+        # short TTL cache so calling /info does not spam the RPC.
+        balance_provider = context.application.bot_data.get("balance_provider")
+        snapshot = await PortfolioService().snapshot(
+            user, balance_provider=balance_provider
+        )
+        text = portfolio_card(snapshot)
         await update.effective_message.reply_text(
             text, parse_mode=ParseMode.MARKDOWN_V2
         )
     except Exception as exc:  # noqa: BLE001 - keep /info usable
-        # If Markdown parsing breaks due an edge-case character, fall
-        # back to plain text so users still get portfolio visibility.
-        logger.warning("info_markdown_render_failed", error=str(exc))
+        # If snapshot collection or Markdown rendering breaks due
+        # to edge-case runtime data, keep /info usable with plain text.
+        logger.warning("info_render_failed_fallback_plain", error=str(exc))
+        # Try to rebuild snapshot when available; if it also fails use
+        # minimal placeholders so the command still answers.
+        try:
+            balance_provider = context.application.bot_data.get("balance_provider")
+            snapshot = await PortfolioService().snapshot(
+                user, balance_provider=balance_provider
+            )
+        except Exception as snap_exc:  # noqa: BLE001
+            logger.error("info_snapshot_failed", error=str(snap_exc))
+            await update.effective_message.reply_text(
+                "No he podido cargar tu portfolio ahora mismo. Reintenta en 10-20 segundos."
+            )
+            return
+
         plain = (
             "PORTFOLIO\n\n"
             f"Liquid USDC: {float(snapshot.usdc_available):,.2f}\n"
