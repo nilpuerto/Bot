@@ -63,4 +63,4 @@ async def info_handler(
             f"Today: {snapshot.trades_today}\n"
             f"Mode: {snapshot.mode.upper()}"
         )
-        await update.effective_message.reply_text(plain)
+        await update.effective_message.reply_text(plain, parse_mode=None)
