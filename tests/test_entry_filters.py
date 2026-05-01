@@ -7,13 +7,14 @@ from app.services.entry_filters import entry_token_gate_fail_reason
 
 
 def test_rejects_above_default_max(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.services.entry_filters.settings.entry_max_price", 0.15)
-    monkeypatch.setattr("app.services.entry_filters.settings.entry_min_price", 0.03)
+    monkeypatch.setattr("app.services.entry_filters.settings.entry_max_price", 0.40)
+    monkeypatch.setattr("app.services.entry_filters.settings.entry_min_price", 0.001)
     monkeypatch.setattr("app.services.entry_filters.settings.min_implied_prob", None)
     monkeypatch.setattr("app.services.entry_filters.settings.max_implied_prob", None)
 
     assert entry_token_gate_fail_reason(0.92) == "above_entry_max"
     assert entry_token_gate_fail_reason(0.12) is None
+    assert entry_token_gate_fail_reason(0.005) is None
 
 
 def test_implied_prob_window(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -32,8 +33,8 @@ def test_implied_prob_window(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_strategy_override_bands(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("app.services.entry_filters.settings.entry_max_price", 0.15)
-    monkeypatch.setattr("app.services.entry_filters.settings.entry_min_price", 0.03)
+    monkeypatch.setattr("app.services.entry_filters.settings.entry_max_price", 0.40)
+    monkeypatch.setattr("app.services.entry_filters.settings.entry_min_price", 0.001)
 
     assert (
         entry_token_gate_fail_reason(

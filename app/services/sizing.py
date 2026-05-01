@@ -44,6 +44,25 @@ from app.config.settings import settings
 Band = Literal["low_prob", "low", "mid", "high"]
 
 
+def implied_entry_size_multiplier(price: float) -> float:
+    """Scale stake by where ``price`` sits in the configured entry band.
+
+    At ``entry_min_price`` we use ``entry_size_scale_at_min``; at
+    ``entry_max_price`` we use ``entry_size_scale_at_max``.
+    """
+    if not settings.entry_implied_scale_enabled or price <= 0:
+        return 1.0
+    lo = float(settings.entry_min_price)
+    hi = float(settings.entry_max_price)
+    m_lo = float(settings.entry_size_scale_at_min)
+    m_hi = float(settings.entry_size_scale_at_max)
+    if hi <= lo:
+        return 1.0
+    p = min(max(float(price), lo), hi)
+    t = (p - lo) / (hi - lo)
+    return m_lo + t * (m_hi - m_lo)
+
+
 def tier_from_ev(ev_tier: str, entry_price: Optional[float] = None) -> Band:
     """EV-driven band selection.
 
@@ -267,6 +286,24 @@ def compute_sizing(
         if anchor > 0 and floor > anchor:
             capped_by = "min_trade_usd"
         base = floor
+
+    if (
+        settings.entry_implied_scale_enabled
+        and entry_price is not None
+        and float(entry_price) > 0
+    ):
+        mul = implied_entry_size_multiplier(float(entry_price))
+        base = round(base * mul, 4)
+        if base > hard_cap:
+            base = hard_cap
+            capped_by = "max_trade_usd"
+            base = round(base, 2)
+        elif base < settings.min_trade_usd:
+            floor = min(settings.min_trade_usd, hard_cap)
+            base = round(floor, 2)
+            capped_by = capped_by or "min_trade_usd"
+        else:
+            base = round(base, 2)
 
     return SizingQuote(
         amount_usd=round(base, 2),

@@ -3,7 +3,9 @@
 These tests lock in the exit contract used by both the production
 :class:`TradeMonitor` and the Monte-Carlo simulator:
 
-* a **hard -30 % floor** always wins first;
+* when ``HARD_SL_ALLOW_IMMEDIATE`` is True, **hard −HARD_SL_PCT floor**
+  wins first; default is **False** so cheap positions are not chopped
+  before trailing arms;
 * the partial-TP ladder fires one rung per tick, lowest un-hit first,
   tightening the trailing pullback as it climbs;
 * the trailing stop is the *only* top-side exit — there is no hard TP
@@ -81,6 +83,7 @@ def test_hard_sl_fires_at_exact_threshold() -> None:
         pnl_pct_value=pnl,
         tiers=TIERS,
         hard_sl_pct=30.0,
+        hard_sl_allow_immediate=True,
     )
     assert ev.action.kind is ExitActionKind.CLOSE
     assert ev.action.close_reason is CloseReason.STOP_LOSS
@@ -95,6 +98,7 @@ def test_hard_sl_fires_below_threshold() -> None:
         pnl_pct_value=pnl,
         tiers=TIERS,
         hard_sl_pct=30.0,
+        hard_sl_allow_immediate=True,
     )
     assert ev.action.kind is ExitActionKind.CLOSE
     assert ev.action.close_reason is CloseReason.STOP_LOSS
@@ -112,6 +116,7 @@ def test_small_drawdown_does_not_close() -> None:
         now=now,
         tiers=TIERS,
         hard_sl_pct=30.0,
+        hard_sl_allow_immediate=True,
     )
     assert ev.action.kind is ExitActionKind.HOLD
 
@@ -449,10 +454,69 @@ def test_max_pnl_pct_seen_is_monotonic() -> None:
 
 def test_default_partial_tp_tiers_parse() -> None:
     tiers = settings.partial_tp_tiers
-    assert len(tiers) >= 1
-    # Thresholds must be strictly ascending post-parse.
     thresholds = [t.pnl_threshold_pct for t in tiers]
     assert thresholds == sorted(thresholds)
-    # Trailing should tighten (or at least not widen) as thresholds rise.
-    trailings = [t.new_trailing_pct for t in tiers]
-    assert trailings == sorted(trailings, reverse=True) or len(set(trailings)) == 1
+    if tiers:
+        trailings = [t.new_trailing_pct for t in tiers]
+        assert trailings == sorted(trailings, reverse=True) or len(set(trailings)) == 1
+
+
+def test_deep_loss_holds_when_immediate_hard_sl_disabled() -> None:
+    """Without immediate hard SL, −40 % unrealized stays open (repricing chop)."""
+    opened = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    now = opened + timedelta(minutes=2)
+    price = ENTRY * 0.60  # −40 %
+    pnl = _pnl_pct_for(price)
+    ev = evaluate_exit(
+        _view(opened_at=opened),
+        price=price,
+        pnl_pct_value=pnl,
+        tiers=[],
+        hard_sl_pct=30.0,
+        hard_sl_allow_immediate=False,
+        now=now,
+        time_exit_hours=48.0,
+    )
+    assert ev.action.kind is ExitActionKind.HOLD
+
+
+def test_trailing_exit_after_arm_with_no_partial_tiers() -> None:
+    """+50 % arms trailing; −20 % peak pullback closes (PARTIAL_TP empty)."""
+    opened = datetime(2026, 3, 1, 14, 0, tzinfo=timezone.utc)
+    now1 = opened + timedelta(minutes=5)
+    price_hi = ENTRY * 1.50
+    pnl_hi = _pnl_pct_for(price_hi)
+    ev1 = evaluate_exit(
+        _view(opened_at=opened),
+        price=price_hi,
+        pnl_pct_value=pnl_hi,
+        tiers=[],
+        trailing_activation_pct=40.0,
+        hard_sl_allow_immediate=False,
+        now=now1,
+        time_exit_hours=48.0,
+    )
+    assert ev1.action.kind is ExitActionKind.HOLD
+    assert ev1.new_trailing_active is True
+
+    peak = price_hi
+    trailing_pull = settings.trailing_pct / 100.0
+    price_lo = peak * (1.0 - trailing_pull) - 1e-9
+    pnl_lo = _pnl_pct_for(price_lo)
+    now2 = opened + timedelta(minutes=6)
+    ev2 = evaluate_exit(
+        _view(
+            opened_at=opened,
+            state=ev1.new_exit_state,
+            trailing_active=ev1.new_trailing_active,
+            peak_price=peak,
+        ),
+        price=price_lo,
+        pnl_pct_value=pnl_lo,
+        tiers=[],
+        hard_sl_allow_immediate=False,
+        now=now2,
+        time_exit_hours=48.0,
+    )
+    assert ev2.action.kind is ExitActionKind.CLOSE
+    assert ev2.action.close_reason is CloseReason.TRAILING_STOP

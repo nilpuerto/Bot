@@ -205,9 +205,8 @@ class PrymStrategy(BaseStrategy):
         The fixed ``stop_loss`` is retired — protective exits now live
         in the trade monitor:
 
-        * hard SL at ``-HARD_SL_PCT`` (PnL-based, not a price level);
-        * partial-TP ladder + progressively tightening trailing stop
-          drive the upside;
+        * optional hard SL at ``-HARD_SL_PCT`` when ``HARD_SL_ALLOW_IMMEDIATE``;
+        * trailing exit after ``+TRAILING_ACTIVATION_PCT`` and peak pullback;
         * time-exit closes cold trades that never reprice.
 
         Consequently the ``take_profit`` field is set to ``None`` here —

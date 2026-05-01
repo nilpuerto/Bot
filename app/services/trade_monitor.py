@@ -15,7 +15,7 @@ The state machine is asymmetric by design:
   exponential outliers can run;
 * time exit for cold trades that never reprice.
 
-Ordering inside a single tick: hard SL → ladder rung → trailing →
+Ordering inside a single tick: optional hard SL → partial ladder rung → trailing →
 time exit → HOLD.
 """
 from __future__ import annotations

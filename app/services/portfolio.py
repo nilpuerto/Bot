@@ -2,7 +2,7 @@
 
 Keeps the math out of handlers so it's easy to unit-test.
 
-``PortfolioSnapshot`` exposes four balance concepts:
+``PortfolioSnapshot`` exposes balance + position concepts:
 
 * ``usdc_available``     — actual on-chain USDC.e liquid balance.  0 in
                            simulation mode or when no provider is wired.
@@ -14,8 +14,9 @@ Keeps the math out of handlers so it's easy to unit-test.
                            ``min(usdc_available, configured_cap)`` when
                            ``configured_cap > 0``, otherwise the full
                            ``usdc_available``.
-* ``in_bot_positions_usd`` — sum of the *original* notionals of every
-                             open trade the bot is currently managing.
+* ``holdings_mark_usd``        — Σ (shares × current mid) for bot open trades,
+                               a rough USD mark (conditional tokens proxy).
+* ``estimated_portfolio_usd`` — ``usdc_available + holdings_mark_usd`` quick total.
 
 The bot only touches what appears in its own ``trades`` table; manual
 positions opened outside the bot are invisible to it and will never be
@@ -41,8 +42,12 @@ class PortfolioSnapshot:
     usdc_available: Decimal
     # What the bot will actually deploy on next trade.
     effective_balance: Decimal
-    # Sum of open-trade notionals managed by this bot.
+    # Sum of original notionals committed on open trades.
     in_bot_positions_usd: Decimal
+    # Mark-to-mid approximation: Σ(shares × current_price) using DB snapshots.
+    holdings_mark_usd: Decimal
+    # Cash + approximate open marks (quick /info headline).
+    estimated_portfolio_usd: Decimal
     # "ok" | "simulation" | "unavailable"
     balance_status: str
     total_pnl: Decimal
@@ -95,11 +100,21 @@ class PortfolioService:
             Decimal("0"),
         )
 
+        holdings_mark_usd = Decimal("0")
+        for t in open_trades:
+            px = float(t.current_price or t.entry_price or 0)
+            sh = float(t.shares or 0)
+            holdings_mark_usd += Decimal(str(round(px * sh, 4)))
+
+        est = Decimal(str(usdc_available)) + holdings_mark_usd
+
         return PortfolioSnapshot(
             configured_cap=configured_cap,
             usdc_available=usdc_available,
             effective_balance=effective_balance,
             in_bot_positions_usd=in_bot_positions_usd,
+            holdings_mark_usd=holdings_mark_usd,
+            estimated_portfolio_usd=est,
             balance_status=balance_status,
             total_pnl=total_pnl,
             winrate_pct=winrate,

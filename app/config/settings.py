@@ -255,7 +255,7 @@ class Settings(BaseSettings):
         default=25.0, alias="HIGH_CONFIDENCE_MAX_USD"
     )
     max_open_trades: int = Field(default=5, alias="MAX_OPEN_TRADES")
-    max_trades_per_day: int = Field(default=4, alias="MAX_TRADES_PER_DAY")
+    max_trades_per_day: int = Field(default=8, alias="MAX_TRADES_PER_DAY")
     trade_cooldown_seconds: int = Field(default=600, alias="TRADE_COOLDOWN_SECONDS")
     # Per-market re-entry cooldown. After we close a trade on market X, we
     # refuse to reopen on that same market for this long — stops the "exit,
@@ -273,10 +273,21 @@ class Settings(BaseSettings):
     # enforces this on every programmatic open.  ``MAX_ENTRY_PRICE`` is an
     # accepted alias (shared idiom with other bots).
     entry_max_price: float = Field(
-        default=0.15,
+        default=0.40,
         validation_alias=AliasChoices("ENTRY_MAX_PRICE", "MAX_ENTRY_PRICE"),
     )
-    entry_min_price: float = Field(default=0.03, alias="ENTRY_MIN_PRICE")
+    entry_min_price: float = Field(default=0.001, alias="ENTRY_MIN_PRICE")
+    # Stretch ``compute_sizing`` output by traded mid: more stake toward
+    # the top of ``[ENTRY_MIN_PRICE, ENTRY_MAX_PRICE]``, less toward dust.
+    entry_implied_scale_enabled: bool = Field(
+        default=True, alias="ENTRY_IMPLIED_SCALE_ENABLED"
+    )
+    entry_size_scale_at_min: float = Field(
+        default=0.65, alias="ENTRY_SIZE_SCALE_AT_MIN"
+    )
+    entry_size_scale_at_max: float = Field(
+        default=1.2, alias="ENTRY_SIZE_SCALE_AT_MAX"
+    )
     # Optional implied-probability band on the *traded* token (≈ mid price).
     # Example: ``MIN_IMPLIED_PROB=0.05`` blocks sub-5¢ dust; ``MAX_IMPLIED_PROB=0.85``
     # blocks 86¢+ "already decided" entries.  ``None`` = disabled for that bound.
@@ -352,14 +363,14 @@ class Settings(BaseSettings):
     # 2.0 % default favours frequency over perfection — the trailing stop
     # + partial-TP ladder are designed to win big and lose small, so we
     # don't need a fat per-trade edge to be EV-positive.
-    min_edge_pct: float = Field(default=2.0, alias="MIN_EDGE_PCT")
+    min_edge_pct: float = Field(default=1.0, alias="MIN_EDGE_PCT")
     polymarket_fee_pct: float = Field(default=0.0, alias="POLYMARKET_FEE_PCT")
 
     # ---- Hard edge gates (measurable only) -----------------------------
     # Minimum |mispricing z-score| required to fire any signal.  1.2 is
     # "statistically notable" without being rare — the 1.5 default was
     # killing too many borderline-tradeable mispricings.
-    z_min_for_trade: float = Field(default=1.2, alias="Z_MIN_FOR_TRADE")
+    z_min_for_trade: float = Field(default=0.9, alias="Z_MIN_FOR_TRADE")
     # Freshness ceiling.  10 minutes is generous but matches typical
     # news→Polymarket repricing latency; the timing detector still
     # prefers earlier phases via the sizing tier.
@@ -369,7 +380,7 @@ class Settings(BaseSettings):
     # Minimum fraction of the intended notional that must be fillable
     # from the top of book for the signal to trade.  Prevents partial
     # fills that degrade the effective edge.
-    min_fill_ratio: float = Field(default=0.20, alias="MIN_FILL_RATIO")
+    min_fill_ratio: float = Field(default=0.12, alias="MIN_FILL_RATIO")
 
     # ---- LOW-PROB gate profile ----------------------------------------
     # Entries whose price is at or below ``low_prob_entry_price`` are
@@ -389,9 +400,9 @@ class Settings(BaseSettings):
     low_prob_entry_price: float = Field(
         default=0.15, alias="LOW_PROB_ENTRY_PRICE"
     )
-    low_prob_z_min: float = Field(default=2.0, alias="LOW_PROB_Z_MIN")
+    low_prob_z_min: float = Field(default=1.4, alias="LOW_PROB_Z_MIN")
     low_prob_min_edge_pct: float = Field(
-        default=6.0, alias="LOW_PROB_MIN_EDGE_PCT"
+        default=4.0, alias="LOW_PROB_MIN_EDGE_PCT"
     )
     # ---- Continuous EDGE_SCORE (observability only, kept for logging) ---
     edge_score_core_min: float = Field(default=0.65, alias="EDGE_SCORE_CORE_MIN")
@@ -600,8 +611,8 @@ class Settings(BaseSettings):
     # The fixed ``stop_loss`` price has been retired — every trade now
     # relies exclusively on the trailing mechanism:
     #
-    #   * arms the first tick pnl_pct ≥ TRAILING_ACTIVATION_PCT (40 %)
-    #   * exits when price falls TRAILING_PCT (20 %) from its peak
+    #   * arms once pnl_pct ≥ TRAILING_ACTIVATION_PCT (40 % default)
+    #   * exits when price falls TRAILING_PCT % from peak (default 20 %)
     #
     # So a trade that rockets +50 % and gives back -20 % from that peak
     # takes profit via the trailing exit; a trade that only spikes
@@ -610,15 +621,16 @@ class Settings(BaseSettings):
     trailing_activation_pct: float = Field(
         default=40.0, alias="TRAILING_ACTIVATION_PCT"
     )
-    trailing_pct: float = Field(default=25.0, alias="TRAILING_PCT")
+    trailing_pct: float = Field(default=20.0, alias="TRAILING_PCT")
 
     # ---- Repricing exit strategy ----------------------------------------
     # The fixed take-profit ceiling is retired.  Exits are now driven by an
     # asymmetric state machine that preserves unbounded upside while still
     # protecting capital:
     #
-    #   * ``hard_sl_pct``               — absolute PnL floor.  Beyond this
-    #                                     loss we close immediately.
+    #   * ``hard_sl_allow_immediate``   — off by default: no −HARD_SL_PCT chop
+    #                                     until the trailing path can arm.
+    #   * ``hard_sl_pct``               — used only when immediate SL on.
     #   * ``time_exit_hours``           — if no meaningful move materialises
     #                                     within this window, close at mid.
     #   * ``time_exit_min_move_pct``    — "meaningful move" threshold used
@@ -629,12 +641,15 @@ class Settings(BaseSettings):
     #                                     trailing stop; subsequent tiers
     #                                     tighten the trailing pullback.
     hard_sl_pct: float = Field(default=30.0, alias="HARD_SL_PCT")
+    hard_sl_allow_immediate: bool = Field(
+        default=False, alias="HARD_SL_ALLOW_IMMEDIATE"
+    )
     time_exit_hours: float = Field(default=10.0, alias="TIME_EXIT_HOURS")
     time_exit_min_move_pct: float = Field(
         default=20.0, alias="TIME_EXIT_MIN_MOVE_PCT"
     )
     partial_tp_tiers_raw: str = Field(
-        default="40:25:25,100:25:20,200:25:15",
+        default="",
         alias="PARTIAL_TP_TIERS",
     )
 

@@ -182,6 +182,8 @@ def portfolio_card(snapshot: PortfolioSnapshot) -> str:
     cap = float(snapshot.configured_cap)
     effective = float(snapshot.effective_balance)
     in_pos = float(snapshot.in_bot_positions_usd)
+    marks = float(snapshot.holdings_mark_usd)
+    est_pf = float(snapshot.estimated_portfolio_usd)
     pnl = float(snapshot.total_pnl)
     pnl_sign = "+" if pnl >= 0 else ""
     mode_emoji = {"safe": "🛡", "semi": "⚖", "auto": "⚡"}.get(snapshot.mode, "•")
@@ -219,7 +221,11 @@ def portfolio_card(snapshot: PortfolioSnapshot) -> str:
             cap_line,
             effective_line,
             f"▸ *In positions*  `${escape_md(f'{in_pos:,.2f}')}` "
-            "\\(bot trades open\\)",
+            "\\(committed notional\\)",
+            f"▸ *Marks \\(~\\)*     `${escape_md(f'{marks:,.2f}')}` "
+            "\\(open shares × mid, approx\\.\\)",
+            f"▸ *Est\\. total*     `${escape_md(f'{est_pf:,.2f}')}` "
+            "\\(liquid \\+ marks\\)",
             "",
             "📊 *Performance*",
             f"▸ *Total PnL*     `{escape_md(pnl_sign + f'{pnl:,.2f}')}$`",
@@ -229,8 +235,7 @@ def portfolio_card(snapshot: PortfolioSnapshot) -> str:
             "",
             f"▸ *Mode*          {mode_emoji}  *{escape_md(snapshot.mode.upper())}*",
             "",
-            "_The bot auto\\-sizes from your liquid USDC\\. "
-            "Manual positions are never touched\\._",
+            "_Liquid from RPC\\. Marks \\(shares×mid\\) from DB snapshots\\._",
         ]
     )
 

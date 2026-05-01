@@ -3,7 +3,10 @@ monitor and the Monte-Carlo simulator.
 
 The design is "asymmetric re-pricing":
 
-* Hard floor: close immediately on ``pnl_pct <= -hard_sl_pct``.
+* Optional hard SL on ``pnl_pct <= -HARD_SL_PCT`` when
+  ``HARD_SL_ALLOW_IMMEDIATE=true``.  Default **off** so losers are not cut
+  until ``TRAILING_ACTIVATION_PCT`` arms the pullback exit (better for
+  cheap tokens that chop before repricing).
 * Partial take-profit ladder: every rung closes a fraction of the
   *remaining* position and tightens (or arms) the trailing stop.
 * No hard TP ceiling: the runner rides the trailing stop — whatever
@@ -147,6 +150,7 @@ def evaluate_exit(
     now: Optional[datetime] = None,
     tiers: Optional[List[PartialTier]] = None,
     hard_sl_pct: Optional[float] = None,
+    hard_sl_allow_immediate: Optional[bool] = None,
     time_exit_hours: Optional[float] = None,
     time_exit_min_move_pct: Optional[float] = None,
     trailing_activation_pct: Optional[float] = None,
@@ -155,7 +159,9 @@ def evaluate_exit(
 
     Priority:
 
-    1. Hard SL (``pnl_pct <= -hard_sl_pct``).
+    1. Hard SL (``pnl_pct <= -hard_sl_pct``) **only if** immediate hard
+       stops are enabled in settings (otherwise we wait for the trailing
+       path after ``TRAILING_ACTIVATION_PCT``).
     2. Partial-TP ladder (one rung per tick, lowest un-hit first).
     3. Trailing stop (only if armed).
     4. Time exit (only if trailing never armed AND no meaningful move).
@@ -166,6 +172,11 @@ def evaluate_exit(
     """
     tiers = tiers if tiers is not None else settings.partial_tp_tiers
     hard_sl = hard_sl_pct if hard_sl_pct is not None else settings.hard_sl_pct
+    allow_hard = (
+        hard_sl_allow_immediate
+        if hard_sl_allow_immediate is not None
+        else settings.hard_sl_allow_immediate
+    )
     t_hours = (
         time_exit_hours
         if time_exit_hours is not None
@@ -198,7 +209,7 @@ def evaluate_exit(
     trailing_active = bool(trade.trailing_active)
 
     # ---- 1. Hard stop-loss ---------------------------------------------
-    if pnl_pct_value <= -hard_sl:
+    if allow_hard and hard_sl > 0 and pnl_pct_value <= -hard_sl:
         return ExitEvaluation(
             action=ExitAction.close(CloseReason.STOP_LOSS),
             new_exit_state=state,

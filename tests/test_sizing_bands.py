@@ -144,19 +144,23 @@ def test_low_prob_band_overrides_edge_tier() -> None:
 
 
 def test_low_prob_band_sizes_tiny() -> None:
-    """LOW_PROB band commits ``band_low_prob_pct`` of balance."""
+    """LOW_PROB band commits ``band_low_prob_pct`` of balance × implied scale."""
+    from app.services.sizing import implied_entry_size_multiplier
+
     balance = 1_000.0
+    entry_price = settings.low_prob_entry_price - 0.01
     q = compute_sizing(
         balance=balance,
         risk_pct=settings.band_high_pct,
         net_edge_pct=20.0,
         abs_z=5.0,
-        entry_price=settings.low_prob_entry_price - 0.01,
+        entry_price=entry_price,
     )
     assert q.band == "low_prob"
-    expected = round(balance * settings.band_low_prob_pct / 100.0, 2)
-    expected = min(expected, settings.max_trade_usd)
-    expected = max(expected, settings.min_trade_usd)
+    base = balance * settings.band_low_prob_pct / 100.0
+    base = min(base, settings.max_trade_usd)
+    base = max(base, settings.min_trade_usd)
+    expected = round(base * implied_entry_size_multiplier(entry_price), 2)
     assert q.amount_usd == expected
 
 

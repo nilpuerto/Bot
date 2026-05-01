@@ -80,12 +80,12 @@ def test_phase_gate_blocks_late_entry() -> None:
 
 
 def test_sizing_high_score_uses_high_band() -> None:
-    from app.config.settings import settings
+    from app.services.sizing import compute_sizing
 
     strat = PrymStrategy()
     plan = strat.sizing(balance=200.0, risk_pct=10.0, entry_price=0.2, score=90)
-    # High band × balance, under MAX_TRADE_USD.
-    assert plan.amount_usd == round(200.0 * settings.band_high_pct / 100.0, 2)
+    q = compute_sizing(balance=200.0, risk_pct=10.0, score=90.0, entry_price=0.2)
+    assert plan.amount_usd == q.amount_usd
     # Fixed stop-loss is retired — trailing stop handles the downside.
     assert plan.stop_loss is None
     # Hard take-profit is ALSO retired under the repricing exit strategy:
