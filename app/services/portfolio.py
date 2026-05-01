@@ -63,6 +63,7 @@ class PortfolioService:
         user: User,
         *,
         balance_provider=None,
+        polymarket_client=None,
     ) -> PortfolioSnapshot:
         """Build a snapshot of the user's funds and bot state.
 
@@ -106,14 +107,31 @@ class PortfolioService:
             sh = float(t.shares or 0)
             holdings_mark_usd += Decimal(str(round(px * sh, 4)))
 
-        est = Decimal(str(usdc_available)) + holdings_mark_usd
+        # Best available positions mark:
+        # 1) Polymarket /value (whole wallet; matches UI "Portfolio")
+        # 2) fallback to bot-managed open trades mark from DB only.
+        external_positions_mark = Decimal("0")
+        if polymarket_client is not None and not settings.simulation_mode:
+            try:
+                external_positions_mark = await polymarket_client.get_positions_value_usd(
+                    settings.effective_funder_address
+                )
+            except Exception:  # noqa: BLE001
+                external_positions_mark = Decimal("0")
+
+        marks_for_total = (
+            external_positions_mark
+            if external_positions_mark > Decimal("0")
+            else holdings_mark_usd
+        )
+        est = Decimal(str(usdc_available)) + marks_for_total
 
         return PortfolioSnapshot(
             configured_cap=configured_cap,
             usdc_available=usdc_available,
             effective_balance=effective_balance,
             in_bot_positions_usd=in_bot_positions_usd,
-            holdings_mark_usd=holdings_mark_usd,
+            holdings_mark_usd=marks_for_total,
             estimated_portfolio_usd=est,
             balance_status=balance_status,
             total_pnl=total_pnl,

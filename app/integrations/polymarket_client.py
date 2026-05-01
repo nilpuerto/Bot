@@ -312,6 +312,37 @@ class PolymarketClient:
             return []
         return _parse_user_trades(resp.json())
 
+    async def get_positions_value_usd(self, wallet_address: str) -> Decimal:
+        """Return current marked value (USD) of open positions for wallet.
+
+        Uses Polymarket Data API ``/value``. This reflects the same
+        "positions value" concept shown in the Polymarket UI (cash is
+        read separately via ``get_usdc_balance``).
+        """
+        assert self._http is not None
+        if not wallet_address:
+            return Decimal("0")
+        try:
+            resp = await self._http.get(
+                f"{DATA_BASE}/value",
+                params={"user": wallet_address},
+            )
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "positions_value_error", wallet=wallet_address, error=str(exc)
+            )
+            return Decimal("0")
+        raw = resp.json()
+        # Usually: [{"user":"0x..","value":7.6198}]
+        if isinstance(raw, list) and raw:
+            first = raw[0]
+            if isinstance(first, dict):
+                return Decimal(str(_as_float(first.get("value"))))
+        if isinstance(raw, dict):
+            return Decimal(str(_as_float(raw.get("value"))))
+        return Decimal("0")
+
     # ---- Balance & writes -----------------------------------------------
 
     async def get_usdc_balance(self, address: Optional[str] = None) -> Decimal:

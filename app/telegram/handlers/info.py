@@ -25,8 +25,11 @@ async def info_handler(
         # The LiveBalanceProvider is shared through ``bot_data``; it uses a
         # short TTL cache so calling /info does not spam the RPC.
         balance_provider = context.application.bot_data.get("balance_provider")
+        polymarket_client = context.application.bot_data.get("polymarket_client")
         snapshot = await PortfolioService().snapshot(
-            user, balance_provider=balance_provider
+            user,
+            balance_provider=balance_provider,
+            polymarket_client=polymarket_client,
         )
         mode = escape(str(snapshot.mode).upper())
         html = (
@@ -56,8 +59,11 @@ async def info_handler(
         # minimal placeholders so the command still answers.
         try:
             balance_provider = context.application.bot_data.get("balance_provider")
+            polymarket_client = context.application.bot_data.get("polymarket_client")
             snapshot = await PortfolioService().snapshot(
-                user, balance_provider=balance_provider
+                user,
+                balance_provider=balance_provider,
+                polymarket_client=polymarket_client,
             )
         except Exception as snap_exc:  # noqa: BLE001
             logger.error("info_snapshot_failed", error=str(snap_exc))
