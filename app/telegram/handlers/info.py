@@ -1,6 +1,8 @@
 """/info — portfolio snapshot for the calling user."""
 from __future__ import annotations
 
+from html import escape
+
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
@@ -8,7 +10,6 @@ from telegram.ext import ContextTypes
 from app.database.models import User
 from app.services.portfolio import PortfolioService
 from app.telegram.auth import requires_auth
-from app.telegram.formatters import portfolio_card
 from app.utils.logger import get_logger
 
 
@@ -27,9 +28,25 @@ async def info_handler(
         snapshot = await PortfolioService().snapshot(
             user, balance_provider=balance_provider
         )
-        text = portfolio_card(snapshot)
+        mode = escape(str(snapshot.mode).upper())
+        html = (
+            "<b>◆ PORTFOLIO</b>\n\n"
+            "<b>💰 Balance</b>\n"
+            f"• <b>Liquid USDC:</b> ${float(snapshot.usdc_available):,.2f}\n"
+            f"• <b>Cap:</b> ${float(snapshot.configured_cap):,.2f}\n"
+            f"• <b>Will deploy:</b> ${float(snapshot.effective_balance):,.2f}\n"
+            f"• <b>In positions (notional):</b> ${float(snapshot.in_bot_positions_usd):,.2f}\n"
+            f"• <b>Marks (~):</b> ${float(snapshot.holdings_mark_usd):,.2f}\n"
+            f"• <b>TOTAL PORTFOLIO (cash + bets):</b> ${float(snapshot.estimated_portfolio_usd):,.2f}\n\n"
+            "<b>📊 Performance</b>\n"
+            f"• <b>Total PnL:</b> {float(snapshot.total_pnl):+,.2f}\n"
+            f"• <b>Win rate:</b> {snapshot.winrate_pct:.1f}%\n"
+            f"• <b>Open trades:</b> {snapshot.open_trades}\n"
+            f"• <b>Today:</b> {snapshot.trades_today}\n"
+            f"• <b>Mode:</b> {mode}"
+        )
         await update.effective_message.reply_text(
-            text, parse_mode=ParseMode.MARKDOWN_V2
+            html, parse_mode=ParseMode.HTML
         )
     except Exception as exc:  # noqa: BLE001 - keep /info usable
         # If snapshot collection or Markdown rendering breaks due
