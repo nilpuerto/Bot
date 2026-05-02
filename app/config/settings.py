@@ -344,10 +344,10 @@ class Settings(BaseSettings):
     # auto-trade execution; they only decide whether a passed signal is
     # broadcast as a "NEW PRYM SIGNAL" notification.
     telegram_signal_min_score: float = Field(
-        default=35.0, alias="TELEGRAM_SIGNAL_MIN_SCORE"
+        default=20.0, alias="TELEGRAM_SIGNAL_MIN_SCORE"
     )
     telegram_signal_min_urgency: int = Field(
-        default=3, alias="TELEGRAM_SIGNAL_MIN_URGENCY"
+        default=2, alias="TELEGRAM_SIGNAL_MIN_URGENCY"
     )
 
     # ---- Microstructure / cost model -----------------------------------
@@ -363,14 +363,14 @@ class Settings(BaseSettings):
     # 2.0 % default favours frequency over perfection — the trailing stop
     # + partial-TP ladder are designed to win big and lose small, so we
     # don't need a fat per-trade edge to be EV-positive.
-    min_edge_pct: float = Field(default=1.0, alias="MIN_EDGE_PCT")
+    min_edge_pct: float = Field(default=0.5, alias="MIN_EDGE_PCT")
     polymarket_fee_pct: float = Field(default=0.0, alias="POLYMARKET_FEE_PCT")
 
     # ---- Hard edge gates (measurable only) -----------------------------
     # Minimum |mispricing z-score| required to fire any signal.  1.2 is
     # "statistically notable" without being rare — the 1.5 default was
     # killing too many borderline-tradeable mispricings.
-    z_min_for_trade: float = Field(default=0.45, alias="Z_MIN_FOR_TRADE")
+    z_min_for_trade: float = Field(default=0.0, alias="Z_MIN_FOR_TRADE")
     # Freshness ceiling.  10 minutes is generous but matches typical
     # news→Polymarket repricing latency; the timing detector still
     # prefers earlier phases via the sizing tier.
@@ -380,7 +380,7 @@ class Settings(BaseSettings):
     # Minimum fraction of the intended notional that must be fillable
     # from the top of book for the signal to trade.  Prevents partial
     # fills that degrade the effective edge.
-    min_fill_ratio: float = Field(default=0.10, alias="MIN_FILL_RATIO")
+    min_fill_ratio: float = Field(default=0.05, alias="MIN_FILL_RATIO")
 
     # ---- LOW-PROB gate profile ----------------------------------------
     # Entries whose price is at or below ``low_prob_entry_price`` are
@@ -400,9 +400,9 @@ class Settings(BaseSettings):
     low_prob_entry_price: float = Field(
         default=0.15, alias="LOW_PROB_ENTRY_PRICE"
     )
-    low_prob_z_min: float = Field(default=0.85, alias="LOW_PROB_Z_MIN")
+    low_prob_z_min: float = Field(default=0.0, alias="LOW_PROB_Z_MIN")
     low_prob_min_edge_pct: float = Field(
-        default=2.0, alias="LOW_PROB_MIN_EDGE_PCT"
+        default=0.5, alias="LOW_PROB_MIN_EDGE_PCT"
     )
     # ---- Continuous EDGE_SCORE (observability only, kept for logging) ---
     edge_score_core_min: float = Field(default=0.65, alias="EDGE_SCORE_CORE_MIN")
@@ -433,9 +433,9 @@ class Settings(BaseSettings):
     # Multiplicative penalty applied to P_edge_real when abs_z == 0 (no
     # measurable mispricing / market has no price history).  Keeps EV honest
     # without hard-blocking volume.  0.65 ≈ one confidence step down.
-    ev_no_z_penalty: float = Field(default=0.65, alias="EV_NO_Z_PENALTY")
+    ev_no_z_penalty: float = Field(default=0.85, alias="EV_NO_Z_PENALTY")
     # Estimated loss when the edge is noise (round-trip cost proxy, in %).
-    ev_loss_estimate_pct: float = Field(default=2.0, alias="EV_LOSS_ESTIMATE_PCT")
+    ev_loss_estimate_pct: float = Field(default=1.0, alias="EV_LOSS_ESTIMATE_PCT")
     ev_core_min: float = Field(default=1.5, alias="EV_CORE_MIN")
     ev_opp_min: float = Field(default=0.3, alias="EV_OPP_MIN")
     # For exploratory plays (entry_price ≤ LOW_PROB_ENTRY_PRICE), the
@@ -507,18 +507,18 @@ class Settings(BaseSettings):
     # AFTER the hard gates have filtered the list.  0.30 is the sweet
     # spot we landed on: high enough to drop garbage, low enough to
     # preserve the long tail of borderline-but-real matches.
-    match_min_confidence: float = Field(default=0.06, alias="MATCH_MIN_CONFIDENCE")
+    match_min_confidence: float = Field(default=0.02, alias="MATCH_MIN_CONFIDENCE")
     # When true, a candidate market MUST contain at least one of the
     # AI-extracted entities to be eligible.  Set to false to recover
     # the legacy "loose" behaviour for debugging.
     match_require_entity_hit: bool = Field(
-        default=True, alias="MATCH_REQUIRE_ENTITY_HIT"
+        default=False, alias="MATCH_REQUIRE_ENTITY_HIT"
     )
     # Jaccard floor when the AI gave us NO entities — without this the
     # matcher would route generic headlines ("breaking: market drops")
     # to almost any candidate.
     match_no_entity_jaccard_min: float = Field(
-        default=0.06, alias="MATCH_NO_ENTITY_JACCARD_MIN"
+        default=0.02, alias="MATCH_NO_ENTITY_JACCARD_MIN"
     )
     # When true, the matcher infers a topic for each candidate market
     # (sports / crypto / political / economic / geopolitical / climate)
@@ -530,7 +530,7 @@ class Settings(BaseSettings):
     # Add a stricter thematic cluster gate (macro/sports/crypto-tech)
     # on top of coarse topic compatibility.
     match_enforce_cluster_gate: bool = Field(
-        default=True, alias="MATCH_ENFORCE_CLUSTER_GATE"
+        default=False, alias="MATCH_ENFORCE_CLUSTER_GATE"
     )
     # Per-cluster entity bonus used by match rankers.
     match_entity_bonus_macro: float = Field(default=0.18, alias="MATCH_ENTITY_BONUS_MACRO")

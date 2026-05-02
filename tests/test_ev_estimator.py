@@ -63,21 +63,18 @@ def test_negative_edge_is_reject() -> None:
 
 
 def test_exploratory_low_price_thin_ev_is_low_tier() -> None:
-    """Low-prob entry with z=0 → EV_NO_Z_PENALTY applied → exploratory low tier.
+    """Low-prob entry, z=0 → EV_NO_Z_PENALTY shrinks confidence; thin edge ⇒ ''low'' tier.
 
-    With EV_NO_Z_PENALTY=0.65 and EV_BASE_P=0.55:
-      p_edge_real = 0.55 × 0.65 = 0.3575
-      EV = 0.3575 × 1.5 − 0.6425 × 1.5 ≈ −0.4275
-
-    −0.4275 is between EV_EXPLORATORY_MIN_EV (−0.6) and EV_OPP_MIN (0.0)
-    and the payout_ratio for a low-price entry exceeds EV_EXPLORATORY_PAYOUT_MIN,
-    so the signal qualifies as the "low" (exploratory) tier.
+    With BASE_P≈0.55, penalty 0.85, loss estimator 1.0:
+      p_edge_real ≈ 0.4675 → a small positive net_edge_pct can still yield
+      slightly negative EV, which skips ``mid`` yet clears the exploratory EV
+      floor so ``tier=='low'``.
     """
     low_price = float(settings.low_prob_entry_price) - 0.01
     r = compute_ev(
-        net_edge_pct=1.50,  # enough edge to stay above exploratory floor with penalty
-        abs_z=0.0,          # no z boost + penalty applied
-        context_score=0.0,  # no context boost
+        net_edge_pct=0.30,
+        abs_z=0.0,
+        context_score=0.0,
         entry_price=low_price,
     )
     assert r.payout_ratio >= float(settings.ev_exploratory_payout_min)

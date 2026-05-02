@@ -80,10 +80,10 @@ def _kw(**over):
     return base
 
 
-def test_z_gate_passes_when_abs_z_meets_min() -> None:
-    # Default Z_MIN_FOR_TRADE is a modest floor; |z| must clear it.
+def test_z_min_zero_z_passes_hard_gate_when_edge_ok() -> None:
+    # Z_MIN_FOR_TRADE=0 → |z|=0 clears the mispricing amplitude gate.
     scorer = SignalScoringSystem()
-    b = scorer.score(**_kw(mispricing=_mp(z=-0.5)))
+    b = scorer.score(**_kw(mispricing=_mp(z=0.0)))
     assert "z_below_min" not in (b.gate_reason or "")
 
 

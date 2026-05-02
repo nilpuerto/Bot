@@ -112,9 +112,9 @@ def test_phase_outside_1_to_4_blocks_trade() -> None:
     assert "phase_5" in b.gate_reason
 
 
-def test_z_gate_passes_when_abs_z_meets_core_floor() -> None:
+def test_z_floor_zero_allows_very_weak_z_when_edge_ok() -> None:
     scorer = SignalScoringSystem()
-    b = scorer.score(**_strong_kwargs(mispricing=_mispricing(z=-0.5)))
+    b = scorer.score(**_strong_kwargs(mispricing=_mispricing(z=-0.05)))
     assert "z_below_min" not in (b.gate_reason or "")
 
 
@@ -231,13 +231,12 @@ def test_low_prob_detected_by_entry_price() -> None:
     assert b.feature_vector.get("is_low_prob") is True
 
 
-def test_low_prob_z_gate_passes_when_abs_z_meets_low_prob_floor() -> None:
-    """Low-prob entries use LOW_PROB_Z_MIN (stricter than core, but not extreme)."""
+def test_low_prob_z_floor_zero_allows_near_zero_abs_z() -> None:
     scorer = SignalScoringSystem()
     b = scorer.score(
         **_strong_kwargs(
             entry_price=_low_prob_price(),
-            mispricing=_mispricing(z=-1.0),
+            mispricing=_mispricing(z=-0.05),
             net_edge_pct=5.0,
             timing=_timing(1),
         )
