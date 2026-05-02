@@ -112,10 +112,9 @@ def test_phase_outside_1_to_4_blocks_trade() -> None:
     assert "phase_5" in b.gate_reason
 
 
-def test_z_gate_removed_low_z_passes_if_ev_positive() -> None:
-    # Z_MIN_FOR_TRADE=0.0 — any z is allowed; EV decides quality.
+def test_z_gate_passes_when_abs_z_meets_core_floor() -> None:
     scorer = SignalScoringSystem()
-    b = scorer.score(**_strong_kwargs(mispricing=_mispricing(z=-0.1)))
+    b = scorer.score(**_strong_kwargs(mispricing=_mispricing(z=-0.5)))
     assert "z_below_min" not in (b.gate_reason or "")
 
 
@@ -232,13 +231,13 @@ def test_low_prob_detected_by_entry_price() -> None:
     assert b.feature_vector.get("is_low_prob") is True
 
 
-def test_low_prob_z_gate_removed() -> None:
-    """LOW_PROB_Z_MIN=0.0 — z-gate removed for low-prob entries too."""
+def test_low_prob_z_gate_passes_when_abs_z_meets_low_prob_floor() -> None:
+    """Low-prob entries use LOW_PROB_Z_MIN (stricter than core, but not extreme)."""
     scorer = SignalScoringSystem()
     b = scorer.score(
         **_strong_kwargs(
             entry_price=_low_prob_price(),
-            mispricing=_mispricing(z=-0.1),
+            mispricing=_mispricing(z=-1.0),
             net_edge_pct=5.0,
             timing=_timing(1),
         )
@@ -246,18 +245,16 @@ def test_low_prob_z_gate_removed() -> None:
     assert "z_below_min" not in (b.gate_reason or "")
 
 
-def test_low_prob_passes_with_any_positive_edge() -> None:
-    """LOW-PROB MIN_EDGE_PCT is now 0.0 — any positive edge passes."""
+def test_low_prob_passes_when_edge_clears_low_prob_floor() -> None:
     scorer = SignalScoringSystem()
     b = scorer.score(
         **_strong_kwargs(
             entry_price=_low_prob_price(),
             mispricing=_mispricing(z=-1.5),
-            net_edge_pct=0.5,  # small but positive
+            net_edge_pct=settings.low_prob_min_edge_pct + 0.5,
             timing=_timing(1),
         )
     )
-    # EV might still reject if net_edge is too low, but edge gate itself passes
     assert "edge_below_min" not in (b.gate_reason or "")
 
 

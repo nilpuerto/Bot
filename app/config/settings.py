@@ -370,7 +370,7 @@ class Settings(BaseSettings):
     # Minimum |mispricing z-score| required to fire any signal.  1.2 is
     # "statistically notable" without being rare — the 1.5 default was
     # killing too many borderline-tradeable mispricings.
-    z_min_for_trade: float = Field(default=0.9, alias="Z_MIN_FOR_TRADE")
+    z_min_for_trade: float = Field(default=0.45, alias="Z_MIN_FOR_TRADE")
     # Freshness ceiling.  10 minutes is generous but matches typical
     # news→Polymarket repricing latency; the timing detector still
     # prefers earlier phases via the sizing tier.
@@ -380,7 +380,7 @@ class Settings(BaseSettings):
     # Minimum fraction of the intended notional that must be fillable
     # from the top of book for the signal to trade.  Prevents partial
     # fills that degrade the effective edge.
-    min_fill_ratio: float = Field(default=0.12, alias="MIN_FILL_RATIO")
+    min_fill_ratio: float = Field(default=0.10, alias="MIN_FILL_RATIO")
 
     # ---- LOW-PROB gate profile ----------------------------------------
     # Entries whose price is at or below ``low_prob_entry_price`` are
@@ -400,9 +400,9 @@ class Settings(BaseSettings):
     low_prob_entry_price: float = Field(
         default=0.15, alias="LOW_PROB_ENTRY_PRICE"
     )
-    low_prob_z_min: float = Field(default=1.4, alias="LOW_PROB_Z_MIN")
+    low_prob_z_min: float = Field(default=0.85, alias="LOW_PROB_Z_MIN")
     low_prob_min_edge_pct: float = Field(
-        default=4.0, alias="LOW_PROB_MIN_EDGE_PCT"
+        default=2.0, alias="LOW_PROB_MIN_EDGE_PCT"
     )
     # ---- Continuous EDGE_SCORE (observability only, kept for logging) ---
     edge_score_core_min: float = Field(default=0.65, alias="EDGE_SCORE_CORE_MIN")
@@ -507,7 +507,7 @@ class Settings(BaseSettings):
     # AFTER the hard gates have filtered the list.  0.30 is the sweet
     # spot we landed on: high enough to drop garbage, low enough to
     # preserve the long tail of borderline-but-real matches.
-    match_min_confidence: float = Field(default=0.30, alias="MATCH_MIN_CONFIDENCE")
+    match_min_confidence: float = Field(default=0.06, alias="MATCH_MIN_CONFIDENCE")
     # When true, a candidate market MUST contain at least one of the
     # AI-extracted entities to be eligible.  Set to false to recover
     # the legacy "loose" behaviour for debugging.
@@ -518,14 +518,14 @@ class Settings(BaseSettings):
     # matcher would route generic headlines ("breaking: market drops")
     # to almost any candidate.
     match_no_entity_jaccard_min: float = Field(
-        default=0.30, alias="MATCH_NO_ENTITY_JACCARD_MIN"
+        default=0.06, alias="MATCH_NO_ENTITY_JACCARD_MIN"
     )
     # When true, the matcher infers a topic for each candidate market
     # (sports / crypto / political / economic / geopolitical / climate)
     # and rejects candidates whose topic is incompatible with the
     # AI-classified news category.
     match_enforce_topic_gate: bool = Field(
-        default=True, alias="MATCH_ENFORCE_TOPIC_GATE"
+        default=False, alias="MATCH_ENFORCE_TOPIC_GATE"
     )
     # Add a stricter thematic cluster gate (macro/sports/crypto-tech)
     # on top of coarse topic compatibility.
