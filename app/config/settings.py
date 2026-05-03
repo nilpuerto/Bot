@@ -283,6 +283,10 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("ENTRY_MAX_PRICE", "MAX_ENTRY_PRICE"),
     )
     entry_min_price: float = Field(default=0.001, alias="ENTRY_MIN_PRICE")
+    entry_price_gate_enabled: bool = Field(
+        default=True,
+        alias="ENTRY_PRICE_GATE_ENABLED",
+    )
     # Stretch ``compute_sizing`` output by traded mid: more stake toward
     # the top of ``[ENTRY_MIN_PRICE, ENTRY_MAX_PRICE]``, less toward dust.
     entry_implied_scale_enabled: bool = Field(

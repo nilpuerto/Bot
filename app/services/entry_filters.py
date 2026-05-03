@@ -25,8 +25,17 @@ def entry_token_gate_fail_reason(
     ``entry_*_override`` ties :class:`~app.strategies.prym_strategy.PrymStrategy`
     per-instance bands to this gate without duplicating comparisons.
 
+    When ``ENTRY_PRICE_GATE_ENABLED=false`` every check below is skipped
+    except validating that ``price`` is a positive finite number (matches
+    the pre‑entry-band news pipeline behaviour).
+
     Reasons are stable log/event tokens.
     """
+    if not settings.entry_price_gate_enabled:
+        if price is None or price <= 0:
+            return "no_price"
+        return None
+
     if price is None or price <= 0:
         return "no_price"
 

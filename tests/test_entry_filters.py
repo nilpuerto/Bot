@@ -17,6 +17,18 @@ def test_rejects_above_default_max(monkeypatch: pytest.MonkeyPatch) -> None:
     assert entry_token_gate_fail_reason(0.005) is None
 
 
+def test_gate_disabled_allows_any_mid(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("app.services.entry_filters.settings.entry_max_price", 0.40)
+    monkeypatch.setattr("app.services.entry_filters.settings.entry_min_price", 0.001)
+    monkeypatch.setattr(
+        "app.services.entry_filters.settings.entry_price_gate_enabled", False
+    )
+
+    assert entry_token_gate_fail_reason(0.92) is None
+    assert entry_token_gate_fail_reason(0.12) is None
+    assert entry_token_gate_fail_reason(None) == "no_price"
+
+
 def test_implied_prob_window(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.entry_filters.settings.entry_max_price", 0.99)
     monkeypatch.setattr("app.services.entry_filters.settings.entry_min_price", 0.01)
