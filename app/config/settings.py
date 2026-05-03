@@ -776,11 +776,13 @@ class Settings(BaseSettings):
     crypto_1h_min_confluence: int = Field(
         default=2, alias="CRYPTO_1H_MIN_CONFLUENCE"
     )
-    # Daily caps per horizon — keeps activity selective on long horizons.
+    # Daily caps per horizon — long-horizon BTC markets only.
     crypto_daily_max_trades: int = Field(
-        default=1, alias="CRYPTO_DAILY_MAX_TRADES"
+        default=12, alias="CRYPTO_DAILY_MAX_TRADES"
     )
-    crypto_1h_max_trades: int = Field(default=4, alias="CRYPTO_1H_MAX_TRADES")
+    crypto_1h_max_trades: int = Field(default=48, alias="CRYPTO_1H_MAX_TRADES")
+    # Concurrent OPEN positions whose signal.category is crypto (ignored by MAX_OPEN_TRADES).
+    crypto_max_open_trades: int = Field(default=48, alias="CRYPTO_MAX_OPEN_TRADES")
     # Stale feed watchdog: if both Binance + Coinbase tickers are older
     # than this, no new entry until a fresh tick arrives.
     crypto_feed_stale_ms: int = Field(

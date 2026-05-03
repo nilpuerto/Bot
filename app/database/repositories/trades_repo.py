@@ -5,13 +5,14 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import (
     CloseReason,
     DailyCounter,
+    Signal,
     Trade,
     TradeStatus,
 )
@@ -61,6 +62,68 @@ class TradesRepository:
             )
         )
         return int(res.scalar_one() or 0)
+
+    @staticmethod
+    def _trade_is_non_crypto() -> object:
+        return or_(
+            Trade.signal_id.is_(None),
+            Signal.category.is_(None),
+            Signal.category != "crypto",
+        )
+
+    async def count_open_non_crypto(self, user_id: int) -> int:
+        res = await self.session.execute(
+            select(func.count(Trade.id))
+            .select_from(Trade)
+            .outerjoin(Signal, Trade.signal_id == Signal.id)
+            .where(
+                Trade.user_id == user_id,
+                Trade.status == TradeStatus.OPEN,
+                self._trade_is_non_crypto(),
+            )
+        )
+        return int(res.scalar_one() or 0)
+
+    async def count_open_crypto(self, user_id: int) -> int:
+        res = await self.session.execute(
+            select(func.count(Trade.id))
+            .select_from(Trade)
+            .join(Signal, Trade.signal_id == Signal.id)
+            .where(
+                Trade.user_id == user_id,
+                Trade.status == TradeStatus.OPEN,
+                Signal.category == "crypto",
+            )
+        )
+        return int(res.scalar_one() or 0)
+
+    async def list_open_non_crypto(self, user_id: int) -> list[Trade]:
+        stmt = (
+            select(Trade)
+            .outerjoin(Signal, Trade.signal_id == Signal.id)
+            .where(
+                Trade.user_id == user_id,
+                Trade.status == TradeStatus.OPEN,
+                self._trade_is_non_crypto(),
+            )
+            .order_by(Trade.opened_at.desc())
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars())
+
+    async def list_open_crypto(self, user_id: int) -> list[Trade]:
+        stmt = (
+            select(Trade)
+            .join(Signal, Trade.signal_id == Signal.id)
+            .where(
+                Trade.user_id == user_id,
+                Trade.status == TradeStatus.OPEN,
+                Signal.category == "crypto",
+            )
+            .order_by(Trade.opened_at.desc())
+        )
+        res = await self.session.execute(stmt)
+        return list(res.scalars())
 
     async def update_price(self, trade_id: int, price: Decimal, pnl: Decimal, pnl_pct: Decimal) -> None:
         await self.session.execute(
@@ -175,6 +238,19 @@ class TradesRepository:
     async def get_last_trade_at(self, user_id: int) -> Optional[datetime]:
         res = await self.session.execute(
             select(func.max(Trade.opened_at)).where(Trade.user_id == user_id)
+        )
+        return res.scalar_one_or_none()
+
+    async def get_last_trade_at_non_crypto(self, user_id: int) -> Optional[datetime]:
+        """Most recent ``opened_at`` among trades whose signal is **not** crypto."""
+        res = await self.session.execute(
+            select(func.max(Trade.opened_at))
+            .select_from(Trade)
+            .outerjoin(Signal, Trade.signal_id == Signal.id)
+            .where(
+                Trade.user_id == user_id,
+                self._trade_is_non_crypto(),
+            )
         )
         return res.scalar_one_or_none()
 

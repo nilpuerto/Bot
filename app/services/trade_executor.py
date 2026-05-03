@@ -71,8 +71,12 @@ class TradeExecutor:
         plan: SizingPlan,
     ) -> ExecutionResult:
         """Perform all final-leg checks + write the trade."""
+        is_crypto = getattr(signal, "category", None) == "crypto"
         decision = await self._limiter.check(
-            user=user, market_id=market.id, market_question=market.question
+            user=user,
+            market_id=market.id,
+            market_question=market.question,
+            is_crypto=is_crypto,
         )
         if not decision.allowed:
             logger.info(
@@ -196,8 +200,11 @@ class TradeExecutor:
 
     async def _mark_signal_and_bump(self, signal_id: int, user_id: int) -> None:
         async with session_scope() as session:
-            await SignalsRepository(session).set_status(signal_id, SignalStatus.ACTED)
-        await self._limiter.register_trade(user_id)
+            repo = SignalsRepository(session)
+            sig = await repo.get(signal_id)
+            bump_daily = getattr(sig, "category", None) != "crypto" if sig else True
+            await repo.set_status(signal_id, SignalStatus.ACTED)
+        await self._limiter.register_trade(user_id, bump_global_daily=bump_daily)
 
     # ---- close -----------------------------------------------------------
 

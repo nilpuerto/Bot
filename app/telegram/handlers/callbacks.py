@@ -7,6 +7,7 @@ from __future__ import annotations
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config.settings import settings
 from app.database.models import (
@@ -177,8 +178,32 @@ async def _handle_mode(
     except ValueError:
         await query.answer("Invalid mode.", show_alert=True)
         return
-    async with session_scope() as session:
-        await UsersRepository(session).set_mode(user.id, mode)
+    try:
+        async with session_scope() as session:
+            await UsersRepository(session).set_mode(user.id, mode)
+    except SQLAlchemyError as exc:
+        origin = getattr(exc, "orig", None)
+        diag = str(origin or exc).lower()
+        if mode is UserMode.CRYPTO and (
+            "user_mode" in diag or "invalid input value for enum" in diag
+        ):
+            logger.warning(
+                "mode_switch_enum_missing_crypto",
+                user_id=user.id,
+                error=str(origin or exc),
+            )
+            await query.answer(
+                "Falta migrar Postgres: en SQL ejecuta ALTER TYPE user_mode ADD VALUE IF NOT EXISTS 'crypto';",
+                show_alert=True,
+            )
+            return
+        logger.exception(
+            "mode_switch_db_error", user_id=user.id, mode=mode.value
+        )
+        await query.answer(
+            "Error de base de datos; revisa logs (journalctl).", show_alert=True
+        )
+        return
     await query.answer(f"Mode → {mode.value.upper()}")
     if query.message is not None:
         await query.message.reply_text(mode_changed(mode), parse_mode=ParseMode.MARKDOWN_V2)

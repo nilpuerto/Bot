@@ -25,23 +25,38 @@ class _FakeRepo:
         *,
         today_count: int = 0,
         last_trade_at=None,
+        last_trade_at_non_crypto=None,
         has_dup: bool = False,
         open_trades: list | None = None,
         open_count: int = 0,
+        crypto_open_count: int = 0,
+        crypto_open_trades: list | None = None,
         last_close_on_market=None,
     ) -> None:
         self.today_count = today_count
         self.last_trade_at = last_trade_at
+        self.last_trade_at_non_crypto = last_trade_at_non_crypto
         self.has_dup = has_dup
         self.open_trades = open_trades or []
         self.open_count = open_count
+        self.crypto_open_count = crypto_open_count
+        self.crypto_open_trades = crypto_open_trades or []
         self.last_close_on_market = last_close_on_market
 
     async def get_today_count(self, user_id): return self.today_count
     async def get_last_trade_at(self, user_id): return self.last_trade_at
+    async def get_last_trade_at_non_crypto(self, user_id): return (
+        self.last_trade_at_non_crypto
+        if self.last_trade_at_non_crypto is not None
+        else self.last_trade_at
+    )
     async def has_open_on_market(self, user_id, market_id): return self.has_dup
     async def list_open(self, user_id): return self.open_trades
+    async def list_open_non_crypto(self, user_id): return self.open_trades
+    async def list_open_crypto(self, user_id): return self.crypto_open_trades
     async def count_open(self, user_id): return self.open_count
+    async def count_open_non_crypto(self, user_id): return self.open_count
+    async def count_open_crypto(self, user_id): return self.crypto_open_count
     async def bump_daily_counter(self, user_id, day=None): return None
     async def get_last_close_on_market(self, user_id, market_id):
         return self.last_close_on_market
@@ -66,7 +81,9 @@ async def test_daily_limit(monkeypatch):
     monkeypatch.setattr(app_settings, "max_trades_per_day", 4)
     _install_fakes(monkeypatch, _FakeRepo(today_count=4))
     limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
-    res = await limiter.check(user=_user(4), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(4), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is False and res.reason == "daily_limit_reached"
 
 
@@ -76,7 +93,9 @@ async def test_daily_limit_env_can_exceed_legacy_user_column(monkeypatch):
     monkeypatch.setattr(app_settings, "max_trades_per_day", 15)
     _install_fakes(monkeypatch, _FakeRepo(today_count=4))
     limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=20)
-    res = await limiter.check(user=_user(4), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(4), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is True
 
 
@@ -84,7 +103,9 @@ async def test_daily_limit_env_can_exceed_legacy_user_column(monkeypatch):
 async def test_cooldown(monkeypatch):
     _install_fakes(monkeypatch, _FakeRepo(last_trade_at=utcnow() - timedelta(seconds=5)))
     limiter = TradeLimiter(cooldown_seconds=600, max_open_trades=5)
-    res = await limiter.check(user=_user(), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is False and res.reason.startswith("cooldown_active")
 
 
@@ -92,7 +113,9 @@ async def test_cooldown(monkeypatch):
 async def test_duplicate_market(monkeypatch):
     _install_fakes(monkeypatch, _FakeRepo(has_dup=True))
     limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
-    res = await limiter.check(user=_user(), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is False and res.reason == "duplicate_market"
 
 
@@ -108,6 +131,7 @@ async def test_similar_market(monkeypatch):
         user=_user(),
         market_id="m2",
         market_question="Trump wins presidential election 2028",
+        is_crypto=False,
     )
     assert res.allowed is False and res.reason == "similar_open_trade"
 
@@ -116,7 +140,9 @@ async def test_similar_market(monkeypatch):
 async def test_max_concurrent(monkeypatch):
     _install_fakes(monkeypatch, _FakeRepo(open_count=5))
     limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
-    res = await limiter.check(user=_user(), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is False and res.reason == "max_open_trades_reached"
 
 
@@ -126,7 +152,9 @@ async def test_happy_path(monkeypatch):
     limiter = TradeLimiter(
         cooldown_seconds=0, max_open_trades=5, post_close_reentry_seconds=0
     )
-    res = await limiter.check(user=_user(), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is True
 
 
@@ -141,7 +169,9 @@ async def test_reentry_cooldown_blocks_fresh_close(monkeypatch):
         max_open_trades=5,
         post_close_reentry_seconds=1800,
     )
-    res = await limiter.check(user=_user(), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is False
     assert res.reason.startswith("reentry_cooldown_active")
 
@@ -156,7 +186,9 @@ async def test_reentry_cooldown_expires(monkeypatch):
         max_open_trades=5,
         post_close_reentry_seconds=1800,
     )
-    res = await limiter.check(user=_user(), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is True
 
 
@@ -170,5 +202,65 @@ async def test_reentry_cooldown_can_be_disabled(monkeypatch):
         max_open_trades=5,
         post_close_reentry_seconds=0,
     )
-    res = await limiter.check(user=_user(), market_id="m1", market_question="Q1")
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
+    assert res.allowed is True
+
+
+@pytest.mark.asyncio
+async def test_crypto_ignores_global_daily(monkeypatch):
+    monkeypatch.setattr(app_settings, "max_trades_per_day", 4)
+    _install_fakes(monkeypatch, _FakeRepo(today_count=99))
+    limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
+    res = await limiter.check(
+        user=_user(4), market_id="m1", market_question="Q1", is_crypto=True
+    )
+    assert res.allowed is True
+
+
+@pytest.mark.asyncio
+async def test_crypto_ignores_news_cooldown(monkeypatch):
+    _install_fakes(monkeypatch, _FakeRepo(last_trade_at=utcnow()))
+    limiter = TradeLimiter(cooldown_seconds=600, max_open_trades=5)
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=True
+    )
+    assert res.allowed is True
+
+
+@pytest.mark.asyncio
+async def test_news_max_open_ignores_crypto_positions(monkeypatch):
+    _install_fakes(monkeypatch, _FakeRepo(open_count=0, crypto_open_count=5))
+    limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
+    assert res.allowed is True
+
+
+@pytest.mark.asyncio
+async def test_crypto_respects_own_concurrent_cap(monkeypatch):
+    monkeypatch.setattr(app_settings, "crypto_max_open_trades", 3)
+    _install_fakes(monkeypatch, _FakeRepo(crypto_open_count=3))
+    limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=True
+    )
+    assert res.allowed is False and res.reason == "crypto_max_open_trades_reached"
+
+
+@pytest.mark.asyncio
+async def test_news_cooldown_uses_only_non_crypto_timestamps(monkeypatch):
+    _install_fakes(
+        monkeypatch,
+        _FakeRepo(
+            last_trade_at=utcnow() - timedelta(seconds=3),
+            last_trade_at_non_crypto=utcnow() - timedelta(days=1),
+        ),
+    )
+    limiter = TradeLimiter(cooldown_seconds=600, max_open_trades=5)
+    res = await limiter.check(
+        user=_user(), market_id="m1", market_question="Q1", is_crypto=False
+    )
     assert res.allowed is True
