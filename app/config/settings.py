@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 import os
 from pathlib import Path
+import sys
 from typing import List, Optional
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -63,9 +64,14 @@ def _split_csv(value: str | List[str] | None) -> List[str]:
     return [v.strip() for v in str(value).split(",") if v.strip()]
 
 
+# Skip loading `.env` under pytest: local `.env` tuning would override Field
+# defaults and destabilise unit tests (real env vars still apply via os.environ).
+_DOTENV_SKIP = "pytest" in sys.modules
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=str(PROJECT_ROOT / ".env"),
+        env_file=None if _DOTENV_SKIP else str(PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

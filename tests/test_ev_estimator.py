@@ -30,7 +30,7 @@ def test_moderate_setup_is_mid() -> None:
     orchestrator level, not inside the EV estimator itself).
     """
     r = compute_ev(
-        net_edge_pct=0.8,   # thin — just enough for positive EV at high p
+        net_edge_pct=1.1,  # ~0.43 EV at p_edge≈0.68 → mid but below EV_CORE_MIN
         abs_z=1.5,
         context_score=0.6,
         entry_price=0.30,
@@ -72,7 +72,7 @@ def test_exploratory_low_price_thin_ev_is_low_tier() -> None:
     """
     low_price = float(settings.low_prob_entry_price) - 0.01
     r = compute_ev(
-        net_edge_pct=0.30,
+        net_edge_pct=2.05,  # with z=0 + penalty ⇒ EV in (0, EV_OPP_MIN) exploratory band
         abs_z=0.0,
         context_score=0.0,
         entry_price=low_price,

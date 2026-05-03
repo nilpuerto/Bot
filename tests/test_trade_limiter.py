@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from app.config.settings import settings as app_settings
 from app.services import trade_limiter as limiter_mod
 from app.services.trade_limiter import TradeLimiter
 from app.utils.time import utcnow
@@ -62,10 +63,21 @@ def _user(max_per_day: int = 4):
 
 @pytest.mark.asyncio
 async def test_daily_limit(monkeypatch):
+    monkeypatch.setattr(app_settings, "max_trades_per_day", 4)
     _install_fakes(monkeypatch, _FakeRepo(today_count=4))
     limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
     res = await limiter.check(user=_user(4), market_id="m1", market_question="Q1")
     assert res.allowed is False and res.reason == "daily_limit_reached"
+
+
+@pytest.mark.asyncio
+async def test_daily_limit_env_can_exceed_legacy_user_column(monkeypatch):
+    """If .env raises MAX_TRADES_PER_DAY above the stale DB column, honour the ceiling."""
+    monkeypatch.setattr(app_settings, "max_trades_per_day", 15)
+    _install_fakes(monkeypatch, _FakeRepo(today_count=4))
+    limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=20)
+    res = await limiter.check(user=_user(4), market_id="m1", market_question="Q1")
+    assert res.allowed is True
 
 
 @pytest.mark.asyncio

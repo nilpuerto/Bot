@@ -754,9 +754,21 @@ class Orchestrator:
             abs(float(score.mispricing_z)) if score.mispricing_z is not None else None
         )
         assert self._balance is not None
-        for user in users:
-            if user.mode != UserMode.AUTO or not user.is_active:
-                continue
+        auto_users = [
+            u for u in users if u.mode == UserMode.AUTO and u.is_active
+        ]
+        if not auto_users:
+            inactive = sum(1 for u in users if not u.is_active)
+            modes = [getattr(u.mode, "value", str(u.mode)) for u in users[:12]]
+            logger.warning(
+                "auto_trade_skipped_no_auto_users",
+                signal_id=signal.id,
+                eligible_users=len(users),
+                inactive_users=inactive,
+                sample_modes=modes,
+                hint="telegram /mode → AUTO to execute OPEN trades after signals",
+            )
+        for user in auto_users:
             # Live mode: the effective bankroll is the lesser of the
             # real on-chain USDC and the user-configured cap (if any).
             # Simulation mode: fall back to ``user.balance``.

@@ -67,9 +67,15 @@ class TradeLimiter:
         async with session_scope() as session:
             repo = TradesRepository(session)
 
-            # 1. Daily budget
+            # 1. Daily budget — MAX_TRADES_PER_DAY in .env can widen the envelope
+            # vs the legacy DB default (often 4) so deployments don't silently
+            # ship with a prehistoric per-user ceiling.
+            cfg_cap = int(settings.max_trades_per_day)
+            user_cap_raw = getattr(user, "max_trades_per_day", None)
+            user_cap = int(user_cap_raw) if user_cap_raw is not None else 0
+            daily_cap = max(cfg_cap, user_cap) if user_cap > 0 else cfg_cap
             today_count = await repo.get_today_count(user.id)
-            if today_count >= int(user.max_trades_per_day or settings.max_trades_per_day):
+            if today_count >= daily_cap:
                 return LimiterDecision(False, "daily_limit_reached")
 
             # 2. Cooldown
