@@ -186,7 +186,12 @@ def portfolio_card(snapshot: PortfolioSnapshot) -> str:
     est_pf = float(snapshot.estimated_portfolio_usd)
     pnl = float(snapshot.total_pnl)
     pnl_sign = "+" if pnl >= 0 else ""
-    mode_emoji = {"safe": "🛡", "semi": "⚖", "auto": "⚡"}.get(snapshot.mode, "•")
+    mode_emoji = {
+        "safe": "🛡",
+        "semi": "⚖",
+        "auto": "⚡",
+        "crypto": "₿",
+    }.get(snapshot.mode, "•")
 
     # --- Balance block -----------------------------------------------------
     if usdc > 0:
@@ -312,8 +317,109 @@ START_MESSAGE = (
 
 def mode_changed(mode: UserMode | str) -> str:
     value = mode.value if hasattr(mode, "value") else str(mode)
-    emoji = {"safe": "🛡", "semi": "⚖", "auto": "⚡"}.get(value, "•")
+    emoji = {"safe": "🛡", "semi": "⚖", "auto": "⚡", "crypto": "₿"}.get(value, "•")
     return f"Mode set to {emoji} *{escape_md(value.upper())}*\\."
+
+
+# ---------- Crypto Mode -----------------------------------------------------
+
+def crypto_mode_switched() -> str:
+    """Sent right after the user flips ``/mode -> CRYPTO``."""
+    return (
+        "₿ *CRYPTO MODE ACTIVE*\n\n"
+        "▸ Watching BTC `5m / 1h / 1d` Polymarket binaries\\.\n"
+        "▸ Real\\-time spot from Binance \\+ Coinbase\\.\n"
+        "▸ News pipeline muted — overlay only for `1h / 1d`\\.\n"
+        "▸ No auto SL/TP — close manually with `/close <id>`\\."
+    )
+
+
+def _horizon_emoji(horizon: str) -> str:
+    return {"5m": "⚡", "1h": "🕐", "1d": "📅"}.get(horizon, "•")
+
+
+def crypto_entry_card(
+    *,
+    horizon: str,
+    side: str,
+    entry_price: float,
+    size_usd: float,
+    balance_pct: float,
+    edge_pct: float,
+    p_fair: float,
+    spot: float,
+    seconds_left: int,
+    reasons: list[str],
+    sentiment: float | None = None,
+) -> str:
+    em = _horizon_emoji(horizon)
+    side_str = side.upper()
+    reasons_str = (
+        ", ".join(escape_md(r) for r in reasons[:6]) if reasons else "lag_arb_only"
+    )
+    minutes = seconds_left // 60
+    seconds = seconds_left % 60
+    sentiment_line = ""
+    if sentiment is not None and abs(sentiment) >= 0.05:
+        sign = "\\+" if sentiment > 0 else "\\-"
+        sentiment_line = (
+            f"\n▸ *News overlay*  `{sign}{escape_md(f'{abs(sentiment):.2f}')}`"
+        )
+    return (
+        f"{em} *BTC {escape_md(horizon.upper())} — {escape_md(side_str)} OPENED*\n\n"
+        f"▸ *Entry*       `{escape_md(f'{entry_price:.3f}')}` "
+        f"\\(\\${escape_md(f'{size_usd:,.2f}')}, "
+        f"{escape_md(f'{balance_pct:.1f}')}% bal\\)\n"
+        f"▸ *Edge*        `{escape_md(f'{edge_pct:+.2f}%')}`  •  "
+        f"*Fair* `{escape_md(f'{p_fair:.3f}')}`  •  "
+        f"*Spot* `\\${escape_md(f'{spot:,.0f}')}`\n"
+        f"▸ *Reasons*     {reasons_str}\n"
+        f"▸ *Closes in*   `{minutes:02d}:{seconds:02d}`"
+        f"{sentiment_line}"
+    )
+
+
+def crypto_late_scoop_card(
+    *,
+    horizon: str,
+    side: str,
+    entry_price: float,
+    size_usd: float,
+    balance_pct: float,
+    seconds_left: int,
+) -> str:
+    minutes = seconds_left // 60
+    seconds = seconds_left % 60
+    return (
+        f"💧 *BTC {escape_md(horizon.upper())} LATE SCOOP — {escape_md(side.upper())}*\n\n"
+        f"▸ Imbalance scoop at `{escape_md(f'{entry_price:.3f}')}` "
+        f"\\(\\${escape_md(f'{size_usd:,.2f}')}, "
+        f"{escape_md(f'{balance_pct:.1f}')}% bal\\)\n"
+        f"▸ Closes in `{minutes:02d}:{seconds:02d}`"
+    )
+
+
+def crypto_exit_suggestion(
+    *,
+    trade_id: int,
+    horizon: str,
+    side: str,
+    entry_price: float,
+    current_price: float,
+    edge_pct_now: float,
+) -> str:
+    return (
+        f"⚠️ *EXIT SUGGESTION — BTC {escape_md(horizon.upper())} {escape_md(side.upper())}*\n\n"
+        f"▸ Trade `#{trade_id}` entry `{escape_md(f'{entry_price:.3f}')}` "
+        f"→ now `{escape_md(f'{current_price:.3f}')}`\n"
+        f"▸ Live edge `{escape_md(f'{edge_pct_now:+.2f}%')}` — consider `/close {trade_id}`\\."
+    )
+
+
+def crypto_skip_log(reason: str, **fields: object) -> str:
+    """Compact, non-Markdown debugging line (logger only)."""
+    parts = " ".join(f"{k}={v}" for k, v in fields.items())
+    return f"crypto_skip reason={reason} {parts}"
 
 
 # ---------- /settings header -----------------------------------------------

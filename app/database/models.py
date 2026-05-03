@@ -41,6 +41,10 @@ class UserMode(str, enum.Enum):
     SAFE = "safe"
     SEMI = "semi"
     AUTO = "auto"
+    # Crypto Mode - dedicated BTC 5min/1h/1d lag-arb pipeline.  When active,
+    # the user is excluded from the news/cluster routing entirely; only the
+    # crypto orchestrator opens trades for them.
+    CRYPTO = "crypto"
 
 
 class SignalImpact(str, enum.Enum):

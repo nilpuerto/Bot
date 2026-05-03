@@ -9,8 +9,13 @@ BEGIN;
 -- ---------- Enums ----------------------------------------------------------
 
 DO $$ BEGIN
-    CREATE TYPE user_mode AS ENUM ('safe', 'semi', 'auto');
+    CREATE TYPE user_mode AS ENUM ('safe', 'semi', 'auto', 'crypto');
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- Non-destructive: add 'crypto' to pre-existing user_mode enums (Crypto Mode).
+DO $$ BEGIN
+    ALTER TYPE user_mode ADD VALUE IF NOT EXISTS 'crypto';
+EXCEPTION WHEN others THEN NULL; END $$;
 
 DO $$ BEGIN
     CREATE TYPE signal_impact AS ENUM ('bullish', 'bearish', 'neutral');

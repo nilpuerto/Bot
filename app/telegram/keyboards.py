@@ -39,7 +39,10 @@ def mode_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton("🛡 SAFE", callback_data="mode:safe"),
                 InlineKeyboardButton("⚖ SEMI", callback_data="mode:semi"),
                 InlineKeyboardButton("⚡ AUTO", callback_data="mode:auto"),
-            ]
+            ],
+            [
+                InlineKeyboardButton("₿ CRYPTO", callback_data="mode:crypto"),
+            ],
         ]
     )
 

@@ -86,6 +86,13 @@ class TradeMonitor:
     async def _process_trade(
         self, trade: Trade, price_cache: dict[str, Optional[float]]
     ) -> None:
+        # Crypto-Mode trades are exit-managed by the user (no auto SL/TP).
+        # We tag them via Signal.category='crypto' at creation time and
+        # skip them here entirely — only manual /close or expiry resolves
+        # them.  See app/core/crypto_orchestrator.py.
+        if await self._is_crypto_trade(trade):
+            return
+
         price = await self._fetch_price(trade.market_id, trade.side, price_cache)
         if price is None:
             return
@@ -189,6 +196,28 @@ class TradeMonitor:
                 trailing_active=evaluation.new_trailing_active,
                 exit_state=evaluation.new_exit_state,
             )
+
+    async def _is_crypto_trade(self, trade: Trade) -> bool:
+        """Return True when this trade was opened by Crypto Mode.
+
+        We persist a Signal row with ``category='crypto'`` at entry time,
+        so a single SELECT keeps the monitor untouched for AUTO/SEMI flows.
+        """
+        if trade.signal_id is None:
+            return False
+        try:
+            from app.database.models import Signal as SignalModel
+            from sqlalchemy import select
+
+            async with session_scope() as session:
+                res = await session.execute(
+                    select(SignalModel.category).where(SignalModel.id == trade.signal_id)
+                )
+                category = res.scalar_one_or_none()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("crypto_check_failed", trade_id=trade.id, error=str(exc))
+            return False
+        return (category or "").lower() == "crypto"
 
     async def _fetch_price(
         self, market_id: str, side: TradeSide, cache: dict[str, Optional[float]]

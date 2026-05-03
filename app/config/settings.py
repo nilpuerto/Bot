@@ -739,6 +739,92 @@ class Settings(BaseSettings):
         default=3, alias="CLUSTER_MAX_TRADES_PER_DAY"
     )
 
+    # ---- Crypto Mode (BTC 5m/1h/1d lag-arb pipeline) -------------------
+    # Independent of the news/cluster engines.  When a user has
+    # ``UserMode.CRYPTO`` the dedicated crypto orchestrator runs the
+    # entry decisions for them; the news pipeline keeps running globally
+    # but is filtered out of their notifications and trade routing.
+    crypto_mode_enabled: bool = Field(default=True, alias="CRYPTO_MODE_ENABLED")
+    # Minimum NET edge after fees + slippage required to enter.  3.5 % is
+    # aggressive but realistic given a Polymarket taker fee around
+    # 1.5-1.8 % and ~50 bps of slippage on thin BTC binaries.
+    crypto_min_edge_pct: float = Field(default=3.5, alias="CRYPTO_MIN_EDGE_PCT")
+    crypto_fee_bps: float = Field(default=180.0, alias="CRYPTO_FEE_BPS")
+    crypto_slippage_bps: float = Field(default=60.0, alias="CRYPTO_SLIPPAGE_BPS")
+    # Sizing anchors.  ``crypto_first_anchor_pct`` is the user's stated
+    # first-entry size, but it is *capped* by the Kelly fraction below
+    # and the per-trade hard cap so a weak edge never deploys 27 %.
+    crypto_first_anchor_pct: float = Field(
+        default=27.0, alias="CRYPTO_FIRST_ANCHOR_PCT"
+    )
+    crypto_late_anchor_pct: float = Field(
+        default=1.5, alias="CRYPTO_LATE_ANCHOR_PCT"
+    )
+    crypto_per_trade_cap_pct: float = Field(
+        default=12.0, alias="CRYPTO_PER_TRADE_CAP_PCT"
+    )
+    crypto_concurrent_cap_pct: float = Field(
+        default=45.0, alias="CRYPTO_CONCURRENT_CAP_PCT"
+    )
+    crypto_kelly_fraction: float = Field(
+        default=0.25, alias="CRYPTO_KELLY_FRACTION"
+    )
+    # TA confluence floors per horizon (0..4 indicators agreeing).
+    crypto_5m_min_confluence: int = Field(
+        default=1, alias="CRYPTO_5M_MIN_CONFLUENCE"
+    )
+    crypto_1h_min_confluence: int = Field(
+        default=2, alias="CRYPTO_1H_MIN_CONFLUENCE"
+    )
+    # Daily caps per horizon — keeps activity selective on long horizons.
+    crypto_daily_max_trades: int = Field(
+        default=1, alias="CRYPTO_DAILY_MAX_TRADES"
+    )
+    crypto_1h_max_trades: int = Field(default=4, alias="CRYPTO_1H_MAX_TRADES")
+    # Stale feed watchdog: if both Binance + Coinbase tickers are older
+    # than this, no new entry until a fresh tick arrives.
+    crypto_feed_stale_ms: int = Field(
+        default=3000, alias="CRYPTO_FEED_STALE_MS"
+    )
+    crypto_price_sources_raw: str = Field(
+        default="binance,coinbase", alias="CRYPTO_PRICE_SOURCES"
+    )
+    # 1-minute candles fetched from Binance REST for TA; cached and
+    # refreshed every 30 s to keep request volume small.
+    crypto_ta_lookback_bars: int = Field(
+        default=200, alias="CRYPTO_TA_LOOKBACK_BARS"
+    )
+    crypto_ta_refresh_seconds: int = Field(
+        default=30, alias="CRYPTO_TA_REFRESH_SECONDS"
+    )
+    # Scanner cadence: how often to poll Gamma for fresh BTC binaries.
+    crypto_scanner_interval_seconds: int = Field(
+        default=5, alias="CRYPTO_SCANNER_INTERVAL_SECONDS"
+    )
+    # News overlay (sentiment context only — never a hard gate).  Affects
+    # 1h sizing +/- and 1d veto when contradiction is extreme.
+    crypto_news_overlay_enabled: bool = Field(
+        default=True, alias="CRYPTO_NEWS_OVERLAY_ENABLED"
+    )
+    crypto_news_window_minutes: int = Field(
+        default=30, alias="CRYPTO_NEWS_WINDOW_MINUTES"
+    )
+    # Late scoop fires when implied price reaches an extreme imbalance.
+    crypto_late_scoop_low_threshold: float = Field(
+        default=0.05, alias="CRYPTO_LATE_SCOOP_LOW_THRESHOLD"
+    )
+    crypto_late_scoop_high_threshold: float = Field(
+        default=0.95, alias="CRYPTO_LATE_SCOOP_HIGH_THRESHOLD"
+    )
+    crypto_late_scoop_window_seconds: int = Field(
+        default=60, alias="CRYPTO_LATE_SCOOP_WINDOW_SECONDS"
+    )
+    # Exit suggestions: when current edge inverts beyond this threshold,
+    # send a Telegram nudge (no auto-close — user said no auto SL/TP).
+    crypto_exit_suggestion_edge_pct: float = Field(
+        default=-3.0, alias="CRYPTO_EXIT_SUGGESTION_EDGE_PCT"
+    )
+
     # ---- Housekeeping / retention ---------------------------------------
     # How often the orchestrator prunes stale rows.  Daily is plenty.
     housekeeping_interval_seconds: int = Field(
@@ -781,6 +867,10 @@ class Settings(BaseSettings):
     @property
     def admin_telegram_ids(self) -> List[int]:
         return [int(v) for v in _split_csv(self.admin_telegram_ids_raw)]
+
+    @property
+    def crypto_price_sources(self) -> List[str]:
+        return [v.lower() for v in _split_csv(self.crypto_price_sources_raw)]
 
     @property
     def tracked_wallets(self) -> List[str]:

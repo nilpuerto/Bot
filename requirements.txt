@@ -24,6 +24,12 @@ py-clob-client-v2==1.0.0
 web3==7.4.0
 eth-account==0.13.4
 
+# --- Crypto Mode (Binance + Coinbase WebSockets) ---
+# Lightweight raw WS client; we deliberately avoid ccxt.pro to keep the
+# dependency footprint small.  ``httpx`` (already pinned above) is used
+# for Binance REST candle fetches.
+websockets==13.1
+
 # --- Testing ---
 pytest==8.3.3
 pytest-asyncio==0.24.0

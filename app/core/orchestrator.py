@@ -26,6 +26,7 @@ from decimal import Decimal
 from typing import Optional
 
 from app.config.settings import settings
+from app.core.crypto_orchestrator import CryptoOrchestrator
 from app.core.scheduler import run_periodic
 from app.database.models import (
     Signal,
@@ -94,6 +95,7 @@ class Orchestrator:
         self._cluster: Optional[WalletClusterScanner] = None
         self._universe: Optional[MarketUniverseService] = None
         self._pending: Optional[PendingNewsQueue] = None
+        self._crypto: Optional[CryptoOrchestrator] = None
         self._feedback = FeedbackLoop()
         self._app = None  # telegram.ext.Application
 
@@ -161,6 +163,14 @@ class Orchestrator:
             balance_provider=self._balance,
         )
 
+        if settings.crypto_mode_enabled:
+            self._crypto = CryptoOrchestrator(
+                polymarket=self._poly,
+                executor=self._executor,
+                balance=self._balance,
+                bot=self._app.bot,
+            )
+
         self._install_signal_handlers()
 
         await self._app.initialize()
@@ -188,11 +198,18 @@ class Orchestrator:
             coros.insert(0, self._universe.run_refresh_loop())
         if self._pending is not None:
             coros.append(self._pending_retry_loop())
+        if self._crypto is not None:
+            await self._crypto.start()
         await asyncio.gather(*coros)
 
     async def shutdown(self) -> None:
         logger.info("orchestrator_shutting_down")
         self._request_stop()
+        if self._crypto:
+            try:
+                await self._crypto.stop()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("crypto_shutdown_error", error=str(exc))
         if self._app:
             try:
                 await self._app.updater.stop()
@@ -340,6 +357,18 @@ class Orchestrator:
             category=analysis.category,
             market=analysis.market,
         )
+
+        # Feed BTC-tagged news into the Crypto Mode overlay (context only).
+        if self._crypto is not None:
+            try:
+                self._crypto.overlay.record(
+                    title=item.title,
+                    impact=analysis.impact,
+                    urgency=analysis.urgency,
+                    entities=list(analysis.entities or []),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("crypto_overlay_record_failed", error=str(exc))
 
         if analysis.urgency < 0:
             return
@@ -711,12 +740,19 @@ class Orchestrator:
 
         # Keep Telegram usable: suppress low-quality/low-urgency push noise
         # while leaving the trade engine unchanged.
+        # Crypto-mode users are excluded from news/cluster cards entirely —
+        # the dedicated crypto orchestrator owns their notification surface.
         should_broadcast_signal = (
             float(score.total) >= float(settings.telegram_signal_min_score)
             and int(analysis.urgency) >= int(settings.telegram_signal_min_urgency)
         )
         notify_users = (
-            [u for u in users if u.is_active and u.notifications_enabled]
+            [
+                u for u in users
+                if u.is_active
+                and u.notifications_enabled
+                and u.mode != UserMode.CRYPTO
+            ]
             if should_broadcast_signal
             else []
         )
