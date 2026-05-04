@@ -137,6 +137,41 @@ async def test_similar_market(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_similar_market_skipped_for_crypto_by_default(monkeypatch):
+    open_trade = SimpleNamespace(market_question="Will Bitcoin reach 80k in May 2026")
+    _install_fakes(
+        monkeypatch,
+        _FakeRepo(crypto_open_trades=[open_trade]),
+    )
+    limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
+    res = await limiter.check(
+        user=_user(),
+        market_id="m2",
+        market_question="Will Bitcoin reach 82k in May 2026",
+        is_crypto=True,
+    )
+    assert res.allowed is True
+
+
+@pytest.mark.asyncio
+async def test_similar_market_for_crypto_enforced_when_flag_on(monkeypatch):
+    open_trade = SimpleNamespace(market_question="Will Bitcoin reach 80k in May 2026")
+    _install_fakes(
+        monkeypatch,
+        _FakeRepo(crypto_open_trades=[open_trade]),
+    )
+    monkeypatch.setattr(app_settings, "crypto_enforce_similar_open_check", True)
+    limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)
+    res = await limiter.check(
+        user=_user(),
+        market_id="m2",
+        market_question="Will Bitcoin reach 82k in May 2026",
+        is_crypto=True,
+    )
+    assert res.allowed is False and res.reason == "similar_open_trade"
+
+
+@pytest.mark.asyncio
 async def test_max_concurrent(monkeypatch):
     _install_fakes(monkeypatch, _FakeRepo(open_count=5))
     limiter = TradeLimiter(cooldown_seconds=0, max_open_trades=5)

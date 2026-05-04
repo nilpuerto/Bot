@@ -109,8 +109,13 @@ class TradeLimiter:
                             False, f"reentry_cooldown_active_{remaining}s"
                         )
 
-            # 5. No duplicate on a "similar" market (same pipeline bucket)
-            slug = topic_slug(market_question)
+            # 5. No duplicate on a "similar" market (same pipeline bucket).
+            # Crypto positions across different strikes share a topic slug
+            # but are economically distinct, so the check is opt-in for them.
+            apply_similar_check = (
+                not is_crypto
+            ) or settings.crypto_enforce_similar_open_check
+            slug = topic_slug(market_question) if apply_similar_check else ""
             if slug:
                 if is_crypto:
                     open_trades = await repo.list_open_crypto(user.id)

@@ -520,7 +520,9 @@ class CryptoOrchestrator:
     def _min_confluence(self, horizon: Horizon) -> int:
         if horizon == "5m":
             return int(settings.crypto_5m_min_confluence)
-        return int(settings.crypto_1h_min_confluence)
+        if horizon == "1h":
+            return int(settings.crypto_1h_min_confluence)
+        return int(settings.crypto_1d_min_confluence)
 
     def _under_daily_cap(self, user: User, horizon: Horizon) -> bool:
         day = utcnow().strftime("%Y-%m-%d")

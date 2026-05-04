@@ -779,6 +779,16 @@ class Settings(BaseSettings):
     crypto_1h_min_confluence: int = Field(
         default=1, alias="CRYPTO_1H_MIN_CONFLUENCE", ge=0, le=4
     )
+    crypto_1d_min_confluence: int = Field(
+        default=0, alias="CRYPTO_1D_MIN_CONFLUENCE", ge=0, le=4
+    )
+    # When false, the trade limiter does NOT block crypto trades on the
+    # ``similar_open_trade`` rule (different BTC strikes share a topic
+    # slug but are economically distinct positions).  Default false so
+    # the engine can stack 80k/82k/86k strikes simultaneously.
+    crypto_enforce_similar_open_check: bool = Field(
+        default=False, alias="CRYPTO_ENFORCE_SIMILAR_OPEN_CHECK"
+    )
     # Daily caps per horizon — long-horizon BTC markets only.
     crypto_daily_max_trades: int = Field(
         default=12, alias="CRYPTO_DAILY_MAX_TRADES"
