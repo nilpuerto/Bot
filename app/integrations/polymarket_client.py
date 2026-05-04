@@ -486,6 +486,53 @@ def _as_float(v: Any, default: float = 0.0) -> float:
         return default
 
 
+def _extract_gamma_end_date(raw: dict) -> Optional[str]:
+    """Gamma field names drift between deploys — try every known synonym."""
+    direct_keys = (
+        "endDate",
+        "end_date",
+        "closesAt",
+        "closes_at",
+        "close_time",
+        "closeTime",
+        "endTime",
+        "expiration",
+        "resolutionDate",
+    )
+    for key in direct_keys:
+        v = raw.get(key)
+        if v:
+            return str(v)
+    ev = raw.get("event")
+    if isinstance(ev, dict):
+        for key in ("endDate", "end_date"):
+            v = ev.get(key)
+            if v:
+                return str(v)
+    elif isinstance(ev, list) and ev:
+        node = ev[0]
+        if isinstance(node, dict):
+            for key in ("endDate", "end_date"):
+                v = node.get(key)
+                if v:
+                    return str(v)
+    nested = raw.get("events") or raw.get("eventsList")
+    if isinstance(nested, list) and nested:
+        node = nested[0]
+        if isinstance(node, dict):
+            if node.get("endDate"):
+                return str(node["endDate"])
+            if node.get("end_date"):
+                return str(node["end_date"])
+            ev2 = node.get("event") or {}
+            if isinstance(ev2, dict):
+                for key in ("endDate", "end_date"):
+                    v = ev2.get(key)
+                    if v:
+                        return str(v)
+    return None
+
+
 def _parse_market(raw: dict) -> MarketSnapshot:
     outcomes = raw.get("outcomes") or []
     if isinstance(outcomes, str):
@@ -551,7 +598,7 @@ def _parse_market(raw: dict) -> MarketSnapshot:
         liquidity=_as_float(raw.get("liquidity") or raw.get("liquidityNum")),
         best_yes_price=best_yes,
         best_no_price=best_no,
-        end_date=raw.get("endDate"),
+        end_date=_extract_gamma_end_date(raw),
         yes_token_id=yes_token_id,
         no_token_id=no_token_id,
     )

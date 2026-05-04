@@ -83,3 +83,21 @@ def test_classify_skips_expired() -> None:
 def test_classify_unknown_slug_falls_through() -> None:
     m = _make_market(slug="random-binary", question="Will it rain in Paris?")
     assert classify(m) is None
+
+
+def test_classify_up_or_down_in_question_only() -> None:
+    m = _make_market(
+        slug="polymarket-btc-may-05-11am",
+        question="Bitcoin Up or Down — May 5, 11 AM ET",
+        end_in_seconds=6 * 60,
+    )
+    cm = classify(m)
+    assert cm is not None
+    assert cm.horizon == "5m"
+
+
+def test_classify_updown_long_horizon_bucketed_as_1d() -> None:
+    m = _make_market(slug="bitcoin-up-or-down-long-window", end_in_seconds=100 * 3600)
+    cm = classify(m)
+    assert cm is not None
+    assert cm.horizon == "1d"

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Awaitable, Callable, Literal, Optional
@@ -122,8 +123,14 @@ def classify(market: MarketSnapshot) -> Optional[CryptoMarket]:
     """Return a :class:`CryptoMarket` if ``market`` is a BTC binary, else None."""
     slug = (market.slug or "").lower()
     question = (market.question or "").lower()
-    if "bitcoin" not in slug and "btc" not in slug and "bitcoin" not in question:
+    blob = f"{slug} {question}"
+
+    has_btc = ("bitcoin" in slug) or ("btc" in slug) or ("bitcoin" in question) or (
+        len(question) >= 3 and question.find(" btc") >= 0
+    )
+    if not has_btc:
         return None
+
     end_at = _parse_end_date(market.end_date)
     if end_at is None:
         return None
@@ -133,12 +140,23 @@ def classify(market: MarketSnapshot) -> Optional[CryptoMarket]:
 
     # --- Horizon classification ---
     horizon: Optional[Horizon] = None
-    if "up-or-down" in slug or "up_or_down" in slug or "updown" in slug:
+    is_ud_style = (
+        "up-or-down" in slug
+        or "up_or_down" in slug
+        or "updown" in slug
+        or "-up-down-" in slug
+        or "up or down" in blob
+        or "up/down" in blob
+    )
+    if is_ud_style:
         if seconds_left <= 7 * 60:
             horizon = "5m"
         elif seconds_left <= 75 * 60:
             horizon = "1h"
         elif seconds_left <= 32 * 3600:
+            horizon = "1d"
+        else:
+            # Long-dated "Up or Down" / weekend windows (>32 h) — still tradeable binaries.
             horizon = "1d"
     if horizon is None:
         if "1h" in slug or "hourly" in slug:
@@ -181,6 +199,8 @@ class CryptoMarketScanner:
         self._stop = asyncio.Event()
         self._seen_ids: set[str] = set()
         self._interval = max(2, settings.crypto_scanner_interval_seconds)
+        self._tick_i = 0
+        self._last_tick_log_m: float = 0.0
 
     def stop(self) -> None:
         self._stop.set()
@@ -199,21 +219,42 @@ class CryptoMarketScanner:
         logger.info("crypto_market_scanner_stopped")
 
     async def _tick(self, on_market: OnMarket) -> None:
-        new_markets: list[CryptoMarket] = []
+        merged: dict[str, MarketSnapshot] = {}
         for query in self._QUERIES:
-            results = await self._poly.search_markets(query, limit=20)
-            for market in results:
-                if not market.id or market.id in self._seen_ids:
-                    continue
-                classified = classify(market)
-                if classified is None:
-                    continue
-                self._seen_ids.add(market.id)
-                new_markets.append(classified)
-        # Trim seen set to avoid unbounded growth: a few thousand ids is fine.
+            for m in await self._poly.search_markets(query, limit=50):
+                if m.id:
+                    merged[m.id] = m
+
+        # Every ~60s (12 × 5s) also merge high-volume active markets — search alone
+        # often misses short-lived BTC 5m listings that are already in the catalogue.
+        self._tick_i += 1
+        if self._tick_i % 12 == 0:
+            for m in await self._poly.list_active_markets(limit=150):
+                if m.id:
+                    merged[m.id] = m
+
+        new_markets: list[CryptoMarket] = []
+        for market in merged.values():
+            if not market.id or market.id in self._seen_ids:
+                continue
+            classified = classify(market)
+            if classified is None:
+                continue
+            self._seen_ids.add(market.id)
+            new_markets.append(classified)
+
         if len(self._seen_ids) > 5_000:
-            # Keep the latest 2_500 inserts (rough FIFO via list re-creation).
             self._seen_ids = set(list(self._seen_ids)[-2_500:])
+
+        now_m = time.monotonic()
+        if now_m - self._last_tick_log_m >= 60.0:
+            self._last_tick_log_m = now_m
+            logger.info(
+                "crypto_scanner_tick",
+                catalogue=len(merged),
+                batch_discovered=len(new_markets),
+                seen_ids=len(self._seen_ids),
+            )
 
         for cm in new_markets:
             logger.info(
