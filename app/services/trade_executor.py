@@ -84,6 +84,9 @@ class TradeExecutor:
                 user_id=user.id,
                 market_id=market.id,
                 reason=decision.reason,
+                is_crypto=is_crypto,
+                signal_id=getattr(signal, "id", None),
+                category=getattr(signal, "category", None),
             )
             return ExecutionResult(False, None, decision.reason, settings.simulation_mode)
 

@@ -78,13 +78,15 @@ logger = get_logger(__name__)
 class _SyntheticSignal:
     """Adapter so we can call ``TradeExecutor.open_trade`` without a DB Signal.
 
-    The executor only reads ``signal.id`` and ``signal.feature_vector`` —
-    we satisfy both with a tiny in-memory shim and persist a real Signal
-    row eagerly so foreign keys remain valid.
+    The executor reads ``signal.id``, ``signal.feature_vector`` and
+    ``signal.category`` (the last one is how it routes the trade through
+    the crypto branch of :class:`~app.services.trade_limiter.TradeLimiter`,
+    bypassing the news daily cap and cooldown).
     """
 
     id: int
     feature_vector: dict
+    category: str = "crypto"
 
 
 class CryptoOrchestrator:
