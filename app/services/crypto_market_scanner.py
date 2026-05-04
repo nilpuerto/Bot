@@ -119,26 +119,32 @@ def _parse_end_date(raw: Optional[str]) -> Optional[datetime]:
         return None
 
 
-def classify(market: MarketSnapshot) -> Optional[CryptoMarket]:
-    """Return a :class:`CryptoMarket` if ``market`` is a BTC binary, else None."""
+@dataclass(frozen=True)
+class ClassifyResult:
+    """Outcome of :func:`classify_with_reason`. ``cm`` is ``None`` on rejection."""
+
+    cm: Optional[CryptoMarket]
+    reason: str  # "ok" or short rejection code
+
+
+def classify_with_reason(market: MarketSnapshot) -> ClassifyResult:
+    """Same as :func:`classify` but also returns *why* a market was rejected."""
     slug = (market.slug or "").lower()
     question = (market.question or "").lower()
     blob = f"{slug} {question}"
 
-    has_btc = ("bitcoin" in slug) or ("btc" in slug) or ("bitcoin" in question) or (
-        len(question) >= 3 and question.find(" btc") >= 0
-    )
+    has_btc = ("bitcoin" in blob) or ("btc" in blob)
     if not has_btc:
-        return None
+        return ClassifyResult(None, "not_btc")
 
     end_at = _parse_end_date(market.end_date)
     if end_at is None:
-        return None
+        return ClassifyResult(None, "no_end_date")
     seconds_left = (end_at - utcnow()).total_seconds()
     if seconds_left <= 0:
-        return None
+        return ClassifyResult(None, "expired")
 
-    # --- Horizon classification ---
+    # --- Horizon classification (very permissive: any binary BTC market wins) ---
     horizon: Optional[Horizon] = None
     is_ud_style = (
         "up-or-down" in slug
@@ -153,20 +159,24 @@ def classify(market: MarketSnapshot) -> Optional[CryptoMarket]:
             horizon = "5m"
         elif seconds_left <= 75 * 60:
             horizon = "1h"
-        elif seconds_left <= 32 * 3600:
-            horizon = "1d"
         else:
-            # Long-dated "Up or Down" / weekend windows (>32 h) — still tradeable binaries.
             horizon = "1d"
     if horizon is None:
         if "1h" in slug or "hourly" in slug:
             horizon = "1h"
         elif "eod" in slug or "daily" in slug or "1d" in slug or "today" in slug:
             horizon = "1d"
-        elif seconds_left <= 7 * 60 and ("bitcoin" in slug):
+        elif seconds_left <= 7 * 60:
             horizon = "5m"
-    if horizon is None:
-        return None
+        elif seconds_left <= 75 * 60:
+            horizon = "1h"
+        else:
+            # Any other BTC binary still falls under the 1d bucket so the engine
+            # at least *evaluates* it; the edge gate will reject if there is none.
+            horizon = "1d"
+
+    if not market.yes_token_id or not market.no_token_id:
+        return ClassifyResult(None, "no_clob_tokens")
 
     strike_value = _parse_usd_strike(market.question or "")
     if strike_value is not None:
@@ -174,13 +184,21 @@ def classify(market: MarketSnapshot) -> Optional[CryptoMarket]:
     else:
         strike_kind = "above_open"
 
-    return CryptoMarket(
-        market=market,
-        horizon=horizon,
-        end_at=end_at,
-        strike_kind=strike_kind,
-        strike=strike_value,
+    return ClassifyResult(
+        CryptoMarket(
+            market=market,
+            horizon=horizon,
+            end_at=end_at,
+            strike_kind=strike_kind,
+            strike=strike_value,
+        ),
+        "ok",
     )
+
+
+def classify(market: MarketSnapshot) -> Optional[CryptoMarket]:
+    """Return a :class:`CryptoMarket` if ``market`` is a BTC binary, else None."""
+    return classify_with_reason(market).cm
 
 
 # ---- scanner --------------------------------------------------------------
@@ -225,23 +243,28 @@ class CryptoMarketScanner:
                 if m.id:
                     merged[m.id] = m
 
-        # Every ~60s (12 × 5s) also merge high-volume active markets — search alone
-        # often misses short-lived BTC 5m listings that are already in the catalogue.
+        # Every ~15s also merge high-volume active markets — search alone
+        # often misses short-lived BTC 5m listings already in the catalogue.
         self._tick_i += 1
-        if self._tick_i % 12 == 0:
-            for m in await self._poly.list_active_markets(limit=150):
+        if self._tick_i % 3 == 0:
+            for m in await self._poly.list_active_markets(limit=200):
                 if m.id:
                     merged[m.id] = m
 
         new_markets: list[CryptoMarket] = []
+        reject_counts: dict[str, int] = {}
+        sample_btc_rejects: list[tuple[str, str]] = []
         for market in merged.values():
             if not market.id or market.id in self._seen_ids:
                 continue
-            classified = classify(market)
-            if classified is None:
+            res = classify_with_reason(market)
+            if res.cm is None:
+                reject_counts[res.reason] = reject_counts.get(res.reason, 0) + 1
+                if res.reason != "not_btc" and len(sample_btc_rejects) < 5:
+                    sample_btc_rejects.append((market.slug or market.id, res.reason))
                 continue
             self._seen_ids.add(market.id)
-            new_markets.append(classified)
+            new_markets.append(res.cm)
 
         if len(self._seen_ids) > 5_000:
             self._seen_ids = set(list(self._seen_ids)[-2_500:])
@@ -249,11 +272,15 @@ class CryptoMarketScanner:
         now_m = time.monotonic()
         if now_m - self._last_tick_log_m >= 60.0:
             self._last_tick_log_m = now_m
+            btc_count = max(0, len(merged) - reject_counts.get("not_btc", 0))
             logger.info(
                 "crypto_scanner_tick",
                 catalogue=len(merged),
+                btc_candidates=btc_count,
                 batch_discovered=len(new_markets),
                 seen_ids=len(self._seen_ids),
+                rejects=reject_counts,
+                sample=sample_btc_rejects,
             )
 
         for cm in new_markets:
