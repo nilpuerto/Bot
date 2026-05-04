@@ -29,6 +29,7 @@ import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from collections import Counter
 from typing import Awaitable, Callable, Literal, Optional
 
 from app.config.settings import settings
@@ -274,6 +275,8 @@ class CryptoMarketScanner:
                 if m.id:
                     merged[m.id] = m
 
+        enabled_horizons = settings.crypto_horizons_enabled
+
         new_markets: list[CryptoMarket] = []
         reject_counts: dict[str, int] = {}
         sample_btc_rejects: list[tuple[str, str]] = []
@@ -288,6 +291,16 @@ class CryptoMarketScanner:
                 if res.reason != "not_btc" and len(sample_btc_rejects) < 5:
                     sample_btc_rejects.append((market.slug or market.id, res.reason))
                 continue
+            if res.cm.horizon not in enabled_horizons:
+                logger.debug(
+                    "crypto_scanner_horizon_filtered",
+                    horizon=res.cm.horizon,
+                    slug=res.cm.market.slug,
+                    market_id=res.cm.market.id,
+                    enabled=sorted(enabled_horizons),
+                )
+                self._seen_ids.add(market.id)
+                continue
             self._seen_ids.add(market.id)
             new_markets.append(res.cm)
 
@@ -298,7 +311,11 @@ class CryptoMarketScanner:
         retry_markets: list[CryptoMarket] = []
         now_ts = time.monotonic()
         for mid, (cm, first_seen) in list(self._pending.items()):
-            if cm.seconds_left <= 5 or now_ts - first_seen > _MAX_RETRY_AGE_S:
+            if (
+                cm.seconds_left <= 5
+                or cm.horizon not in enabled_horizons
+                or now_ts - first_seen > _MAX_RETRY_AGE_S
+            ):
                 self._pending.pop(mid, None)
                 continue
             retry_markets.append(cm)
@@ -306,18 +323,37 @@ class CryptoMarketScanner:
         now_m = time.monotonic()
         if now_m - self._last_tick_log_m >= 60.0:
             self._last_tick_log_m = now_m
-            btc_count = max(0, len(merged) - reject_counts.get("not_btc", 0))
-            horizons_breakdown: dict[str, int] = {"5m": 0, "1h": 0, "1d": 0}
+            cat_horizons: Counter[str] = Counter()
+            cat_rejects: Counter[str] = Counter()
+            sample_5m: Optional[str] = None
+            for market in merged.values():
+                if not market.id:
+                    continue
+                r = classify_with_reason(market)
+                if r.cm is not None:
+                    cat_horizons[r.cm.horizon] += 1
+                    if r.cm.horizon == "5m" and sample_5m is None:
+                        sample_5m = r.cm.market.slug
+                else:
+                    cat_rejects[r.reason] += 1
+
+            btc_in_catalogue = int(sum(cat_horizons.values()))
+            batch_by_h = {"5m": 0, "1h": 0, "1d": 0}
             for cm in new_markets:
-                horizons_breakdown[cm.horizon] = horizons_breakdown.get(cm.horizon, 0) + 1
+                batch_by_h[cm.horizon] = batch_by_h.get(cm.horizon, 0) + 1
+
             logger.info(
                 "crypto_scanner_tick",
                 catalogue=len(merged),
-                btc_candidates=btc_count,
+                btc_in_catalogue=btc_in_catalogue,
+                catalogue_by_horizon=dict(cat_horizons),
+                sample_slug_5m=sample_5m,
+                enabled_horizons=sorted(enabled_horizons),
                 batch_discovered=len(new_markets),
-                horizons=horizons_breakdown,
+                batch_by_horizon=batch_by_h,
                 seen_ids=len(self._seen_ids),
-                rejects=reject_counts,
+                rejects_this_tick_only=reject_counts,
+                rejects_full_catalogue_sample=dict(cat_rejects.most_common(6)),
                 sample=sample_btc_rejects,
             )
 

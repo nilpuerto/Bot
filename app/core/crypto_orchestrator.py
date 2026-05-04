@@ -175,7 +175,7 @@ class CryptoOrchestrator:
 
         enabled = settings.crypto_horizons_enabled
         if cm.horizon not in enabled:
-            logger.info(
+            logger.debug(
                 "crypto_skip",
                 reason="horizon_disabled",
                 horizon=cm.horizon,
