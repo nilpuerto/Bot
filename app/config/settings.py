@@ -772,6 +772,31 @@ class Settings(BaseSettings):
     # If true, raise sub-MIN_TRADE_USD Kelly sizes to one minimum ticket when caps allow
     # (only after the orchestrator already accepted net edge >= CRYPTO_MIN_EDGE_PCT).
     crypto_floor_min_ticket: bool = Field(default=True, alias="CRYPTO_FLOOR_MIN_TICKET")
+    # ----- Long-shot mode (gambler's bias on cheap sides) ---------------
+    # When enabled, the orchestrator inspects each market for a side
+    # whose ask <= ``crypto_longshot_max_ask`` (typical 0.30).  If found
+    # and the side's net edge >= ``crypto_longshot_min_edge_pct`` (can be
+    # negative — gambler's mode), the engine prefers that side over the
+    # standard EV-maximising pick.  Sizing uses
+    # ``crypto_longshot_per_trade_cap_pct`` directly (no Kelly clamp) to
+    # capture the 3-10× upside on long shots.
+    crypto_longshot_enabled: bool = Field(
+        default=True, alias="CRYPTO_LONGSHOT_ENABLED"
+    )
+    crypto_longshot_max_ask: float = Field(
+        default=0.30, alias="CRYPTO_LONGSHOT_MAX_ASK", ge=0.01, le=0.95
+    )
+    crypto_longshot_min_edge_pct: float = Field(
+        default=-3.0, alias="CRYPTO_LONGSHOT_MIN_EDGE_PCT"
+    )
+    crypto_longshot_per_trade_cap_pct: float = Field(
+        default=12.0, alias="CRYPTO_LONGSHOT_PER_TRADE_CAP_PCT", ge=0.0, le=100.0
+    )
+    # Forces the orchestrator to *only* take long-shot trades; the
+    # standard pick is dropped.  Use to maximise upside-vs-cost ratio.
+    crypto_longshot_only: bool = Field(
+        default=False, alias="CRYPTO_LONGSHOT_ONLY"
+    )
     # TA confluence floors per horizon (0..4 indicators agreeing).
     crypto_5m_min_confluence: int = Field(
         default=0, alias="CRYPTO_5M_MIN_CONFLUENCE", ge=0, le=4

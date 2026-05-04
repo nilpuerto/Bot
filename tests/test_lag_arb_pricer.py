@@ -13,6 +13,7 @@ from app.services.lag_arb_pricer import (
     fair_prob_above,
     norm_cdf,
     per_sec_from_annualised,
+    pick_longshot_side,
 )
 
 
@@ -157,6 +158,49 @@ def test_edge_diagnostic_agrees_with_choose_side_when_positive() -> None:
     assert q is not None
     assert d.best_side == q.side
     assert pytest.approx(d.best_edge_pct or 0.0, abs=1e-9) == q.edge_pct
+
+
+# ---- pick_longshot_side --------------------------------------------------
+
+def test_pick_longshot_prefers_cheapest_qualifying_side() -> None:
+    # Both sides have ask <= 0.30; YES is cheaper at 0.20 -> picked.
+    q = pick_longshot_side(
+        p_fair_yes=0.50,
+        ask_yes=0.20,
+        ask_no=0.28,
+        fee_bps=180.0,
+        slip_bps=60.0,
+        max_ask=0.30,
+        min_edge_pct=-5.0,
+    )
+    assert q is not None and q.side == "yes" and q.ask == 0.20
+
+
+def test_pick_longshot_skips_sides_above_max_ask() -> None:
+    q = pick_longshot_side(
+        p_fair_yes=0.50,
+        ask_yes=0.40,
+        ask_no=0.62,
+        fee_bps=180.0,
+        slip_bps=60.0,
+        max_ask=0.30,
+        min_edge_pct=-5.0,
+    )
+    assert q is None
+
+
+def test_pick_longshot_respects_min_edge_floor() -> None:
+    # Tight floor (+5 %) drops a candidate whose edge is only +0.5 %.
+    q = pick_longshot_side(
+        p_fair_yes=0.21,
+        ask_yes=0.20,
+        ask_no=0.85,
+        fee_bps=20.0,
+        slip_bps=10.0,
+        max_ask=0.30,
+        min_edge_pct=5.0,
+    )
+    assert q is None
 
 
 # ---- EwmaSigma -----------------------------------------------------------

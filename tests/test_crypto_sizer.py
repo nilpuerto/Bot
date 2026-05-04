@@ -15,6 +15,7 @@ def _patch_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("app.services.crypto_sizer.settings.min_trade_usd", 2.0)
     monkeypatch.setattr("app.services.crypto_sizer.settings.crypto_late_scoop_low_threshold", 0.05)
     monkeypatch.setattr("app.services.crypto_sizer.settings.crypto_late_scoop_high_threshold", 0.95)
+    monkeypatch.setattr("app.services.crypto_sizer.settings.crypto_longshot_per_trade_cap_pct", 12.0)
 
 
 # ---- first_entry_size ----------------------------------------------------
@@ -77,6 +78,35 @@ def test_first_entry_floor_raises_small_kelly_to_min_ticket(monkeypatch: pytest.
     s = first_entry_size(balance=100.0, edge_pct=2.0)
     assert s.amount_usd == pytest.approx(2.0)
     assert s.reason == "ok"
+
+
+def test_first_entry_longshot_uses_longshot_cap_not_kelly(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Long-shot trades skip the Kelly clamp and deploy the longshot cap."""
+    _patch_defaults(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.crypto_sizer.settings.crypto_longshot_per_trade_cap_pct", 15.0
+    )
+    s = first_entry_size(balance=1_000.0, edge_pct=-1.0, is_longshot=True)
+    assert s.amount_usd == pytest.approx(150.0, abs=1e-6)
+    assert s.reason == "ok"
+
+
+def test_first_entry_longshot_respects_concurrent_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_defaults(monkeypatch)
+    monkeypatch.setattr(
+        "app.services.crypto_sizer.settings.crypto_longshot_per_trade_cap_pct", 30.0
+    )
+    s = first_entry_size(
+        balance=1_000.0,
+        edge_pct=-1.0,
+        currently_open_usd=400.0,
+        is_longshot=True,
+    )
+    assert s.amount_usd == pytest.approx(50.0, abs=1e-6)
 
 
 def test_first_entry_concurrent_cap_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:

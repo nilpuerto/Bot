@@ -168,6 +168,56 @@ class EdgeDiagnostic:
     best_edge_pct: Optional[float]
 
 
+def pick_longshot_side(
+    p_fair_yes: float,
+    *,
+    ask_yes: Optional[float],
+    ask_no: Optional[float],
+    fee_bps: float,
+    slip_bps: float,
+    max_ask: float,
+    min_edge_pct: float,
+) -> Optional[EdgeQuote]:
+    """Return the cheapest side whose ask is below ``max_ask`` and whose
+    *net* edge is at least ``min_edge_pct`` (can be negative for an
+    explicit gambler's-mode setting).
+
+    Used by the orchestrator's long-shot pathway: the user accepts a
+    smaller probability of winning in exchange for 3-10× payout per
+    dollar.  Returns ``None`` when neither side qualifies.
+    """
+    cost_frac = (fee_bps + slip_bps) / 10_000.0
+    candidates: list[EdgeQuote] = []
+    if ask_yes is not None and 0.0 < ask_yes <= max_ask:
+        edge = _edge_pct(p_fair_yes, ask_yes, cost_frac)
+        if edge >= min_edge_pct:
+            candidates.append(
+                EdgeQuote(
+                    side="yes",
+                    p_fair=p_fair_yes,
+                    ask=ask_yes,
+                    edge_pct=edge,
+                    cost_bps=fee_bps + slip_bps,
+                )
+            )
+    if ask_no is not None and 0.0 < ask_no <= max_ask:
+        edge = _edge_pct(1.0 - p_fair_yes, ask_no, cost_frac)
+        if edge >= min_edge_pct:
+            candidates.append(
+                EdgeQuote(
+                    side="no",
+                    p_fair=1.0 - p_fair_yes,
+                    ask=ask_no,
+                    edge_pct=edge,
+                    cost_bps=fee_bps + slip_bps,
+                )
+            )
+    if not candidates:
+        return None
+    # The "long shot" is the cheapest qualifying side (highest 1/ask).
+    return min(candidates, key=lambda q: q.ask)
+
+
 def edge_diagnostic(
     p_fair_yes: float,
     *,
@@ -276,4 +326,5 @@ __all__ = [
     "fair_prob_above_strike_pct",
     "norm_cdf",
     "per_sec_from_annualised",
+    "pick_longshot_side",
 ]

@@ -52,6 +52,7 @@ from app.services.lag_arb_pricer import (
     choose_side,
     edge_diagnostic,
     fair_prob_above,
+    pick_longshot_side,
 )
 from app.services.ta_confluence import CandleCache, score as ta_score
 from app.services.trade_executor import TradeExecutor
@@ -197,8 +198,26 @@ class CryptoOrchestrator:
             fee_bps=settings.crypto_fee_bps,
             slip_bps=settings.crypto_slippage_bps,
         )
+        is_longshot = False
+        if settings.crypto_longshot_enabled:
+            ls = pick_longshot_side(
+                p_fair_yes,
+                ask_yes=ask_yes,
+                ask_no=ask_no,
+                fee_bps=settings.crypto_fee_bps,
+                slip_bps=settings.crypto_slippage_bps,
+                max_ask=float(settings.crypto_longshot_max_ask),
+                min_edge_pct=float(settings.crypto_longshot_min_edge_pct),
+            )
+            if ls is not None and (
+                settings.crypto_longshot_only
+                or quote is None
+                or ls.ask < quote.ask
+            ):
+                quote = ls
+                is_longshot = True
         min_e = float(settings.crypto_min_edge_pct)
-        if quote is None or quote.edge_pct < min_e:
+        if quote is None or (not is_longshot and quote.edge_pct < min_e):
             gap_pp: Optional[float] = None
             if quote is not None:
                 gap_pp = round(min_e - float(quote.edge_pct), 3)
@@ -281,6 +300,7 @@ class CryptoOrchestrator:
                 ta_reasons=ta_reasons,
                 overlay_scale=overlay_decision.scale,
                 overlay_sentiment=overlay_decision.sentiment,
+                is_longshot=is_longshot,
             )
 
     async def _execute_first_entry(
@@ -294,6 +314,7 @@ class CryptoOrchestrator:
         ta_reasons: list[str],
         overlay_scale: float,
         overlay_sentiment: float,
+        is_longshot: bool = False,
     ) -> None:
         breakdown = await self._balance.effective_balance(user)
         balance = float(breakdown.effective)
@@ -303,7 +324,10 @@ class CryptoOrchestrator:
 
         open_usd = self._open_usd_by_user.get(user.id, 0.0)
         sizing = first_entry_size(
-            balance=balance, edge_pct=quote.edge_pct, currently_open_usd=open_usd
+            balance=balance,
+            edge_pct=quote.edge_pct,
+            currently_open_usd=open_usd,
+            is_longshot=is_longshot,
         )
         if sizing.amount_usd <= 0:
             logger.info(
@@ -326,8 +350,23 @@ class CryptoOrchestrator:
             )
             return
 
-        plan = sizing.to_plan(entry_price=quote.ask, band="crypto_first")
+        plan = sizing.to_plan(
+            entry_price=quote.ask,
+            band="crypto_longshot" if is_longshot else "crypto_first",
+        )
         plan.amount_usd = round(size_usd, 4)
+        if is_longshot:
+            ta_reasons = [*ta_reasons, "longshot"]
+            logger.info(
+                "crypto_longshot_pick",
+                user_id=user.id,
+                market_id=cm.market.id,
+                side=quote.side,
+                ask=round(quote.ask, 4),
+                edge_pct=round(quote.edge_pct, 3),
+                size_usd=round(plan.amount_usd, 2),
+                upside_x=round(1.0 / quote.ask, 2) if quote.ask > 0 else None,
+            )
 
         signal = await self._persist_synthetic_signal(
             cm=cm, quote=quote, p_fair_yes=p_fair_yes, ta_reasons=ta_reasons

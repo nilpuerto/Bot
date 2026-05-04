@@ -58,8 +58,16 @@ def first_entry_size(
     balance: float,
     edge_pct: float,
     currently_open_usd: float = 0.0,
+    is_longshot: bool = False,
 ) -> CryptoSizing:
-    """First-entry sizing for a fresh BTC binary."""
+    """First-entry sizing for a fresh BTC binary.
+
+    When ``is_longshot`` is True the sizing skips the Kelly clamp and
+    deploys the per-trade cap directly — long-shots have asymmetric
+    payoffs (3-10×) so the constraint that protects edge-neutral plays
+    becomes self-defeating.  The total balance exposure is still bounded
+    by the per-trade and concurrent caps.
+    """
     if balance <= 0:
         return CryptoSizing(0.0, 0.0, 0.0, 0.0, 0.0, "zero_balance")
 
@@ -71,7 +79,11 @@ def first_entry_size(
     kelly_f = max(0.0, edge_pct / 100.0) * settings.crypto_kelly_fraction
     kelly_usd = balance * kelly_f
 
-    raw = min(anchor_usd, kelly_usd, per_trade_cap_usd, concurrent_cap_remaining)
+    if is_longshot:
+        ls_cap_usd = balance * settings.crypto_longshot_per_trade_cap_pct / 100.0
+        raw = min(ls_cap_usd, concurrent_cap_remaining)
+    else:
+        raw = min(anchor_usd, kelly_usd, per_trade_cap_usd, concurrent_cap_remaining)
     raw = max(0.0, raw)
 
     # Once the lag-arb gate accepted the trade, Kelly can still shrink size
