@@ -17,9 +17,7 @@ End-to-end flow on each new BTC market discovered by the scanner::
     quote  = lag_arb.choose_side(p_fair, ask_yes, ask_no, fee, slip)
     if quote is None or quote.edge_pct < CRYPTO_MIN_EDGE_PCT:  skip(no_edge)
 
-    candles = ta.candles_async()
-    ta_score = ta.score(candles, side=quote.side)
-    if confluence < min_for_horizon:                            skip(low_ta)
+    ta gate: skip(low_confluence) only when min_conf for horizon is > 0
 
     overlay = news_overlay.modifier(side, horizon)
     if overlay.action == "veto":                                skip(news_veto)
@@ -228,24 +226,28 @@ class CryptoOrchestrator:
             )
             return
 
-        # --- TA confluence filter ---
-        candles = await self._candles.get()
-        side_long_short = "long" if quote.side == "yes" else "short"
-        ta = ta_score(candles, side_long_short)
+        # --- TA confluence filter (0 = disabled for that horizon) ---
         min_conf = self._min_confluence(cm.horizon)
-        if ta.confluence < min_conf:
-            logger.info(
-                "crypto_skip",
-                reason="low_confluence",
-                horizon=cm.horizon,
-                confluence=ta.confluence,
-                min=min_conf,
-                edge_pct=round(quote.edge_pct, 2),
-                rsi=ta.rsi,
-                trend_15m=ta.trend_15m,
-                market_id=cm.market.id,
-            )
-            return
+        if min_conf <= 0:
+            ta_reasons = ["ta_disabled_min_confluence_0"]
+        else:
+            candles = await self._candles.get()
+            side_long_short = "long" if quote.side == "yes" else "short"
+            ta = ta_score(candles, side_long_short)
+            if ta.confluence < min_conf:
+                logger.info(
+                    "crypto_skip",
+                    reason="low_confluence",
+                    horizon=cm.horizon,
+                    confluence=ta.confluence,
+                    min=min_conf,
+                    edge_pct=round(quote.edge_pct, 2),
+                    rsi=ta.rsi,
+                    trend_15m=ta.trend_15m,
+                    market_id=cm.market.id,
+                )
+                return
+            ta_reasons = ta.reasons
 
         # --- News overlay (context only) ---
         overlay_decision = self._overlay.modifier(quote.side, cm.horizon)
@@ -276,7 +278,7 @@ class CryptoOrchestrator:
                 quote=quote,
                 spot=spot,
                 p_fair_yes=p_fair_yes,
-                ta_reasons=ta.reasons,
+                ta_reasons=ta_reasons,
                 overlay_scale=overlay_decision.scale,
                 overlay_sentiment=overlay_decision.sentiment,
             )

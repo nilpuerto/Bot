@@ -74,6 +74,14 @@ def first_entry_size(
     raw = min(anchor_usd, kelly_usd, per_trade_cap_usd, concurrent_cap_remaining)
     raw = max(0.0, raw)
 
+    # Once the lag-arb gate accepted the trade, Kelly can still shrink size
+    # below MIN_TRADE_USD on small accounts — we optionally lift to one
+    # minimum ticket (still bounded by per-trade + concurrent caps).
+    if settings.crypto_floor_min_ticket and concurrent_cap_remaining >= settings.min_trade_usd:
+        ticket = min(settings.min_trade_usd, per_trade_cap_usd, concurrent_cap_remaining)
+        if ticket >= settings.min_trade_usd and raw < ticket:
+            raw = ticket
+
     # Floor at MIN_TRADE_USD so we don't post dust orders; if even the
     # floor is over the concurrent cap, return 0 with an explanatory
     # reason and let the orchestrator skip.

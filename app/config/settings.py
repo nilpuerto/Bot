@@ -745,10 +745,10 @@ class Settings(BaseSettings):
     # entry decisions for them; the news pipeline keeps running globally
     # but is filtered out of their notifications and trade routing.
     crypto_mode_enabled: bool = Field(default=True, alias="CRYPTO_MODE_ENABLED")
-    # Minimum NET edge after fees + slippage required to enter.  3.5 % is
-    # aggressive but realistic given a Polymarket taker fee around
-    # 1.5-1.8 % and ~50 bps of slippage on thin BTC binaries.
-    crypto_min_edge_pct: float = Field(default=3.5, alias="CRYPTO_MIN_EDGE_PCT")
+    # Minimum NET edge after fees + slippage required to enter.  Typical
+    # prod values range from ~0.5 % (very active) through ~3.5 %
+    # (conservative) depending on fees and liquidity.
+    crypto_min_edge_pct: float = Field(default=0.5, alias="CRYPTO_MIN_EDGE_PCT")
     crypto_fee_bps: float = Field(default=180.0, alias="CRYPTO_FEE_BPS")
     crypto_slippage_bps: float = Field(default=60.0, alias="CRYPTO_SLIPPAGE_BPS")
     # Sizing anchors.  ``crypto_first_anchor_pct`` is the user's stated
@@ -769,12 +769,15 @@ class Settings(BaseSettings):
     crypto_kelly_fraction: float = Field(
         default=0.25, alias="CRYPTO_KELLY_FRACTION"
     )
+    # If true, raise sub-MIN_TRADE_USD Kelly sizes to one minimum ticket when caps allow
+    # (only after the orchestrator already accepted net edge >= CRYPTO_MIN_EDGE_PCT).
+    crypto_floor_min_ticket: bool = Field(default=True, alias="CRYPTO_FLOOR_MIN_TICKET")
     # TA confluence floors per horizon (0..4 indicators agreeing).
     crypto_5m_min_confluence: int = Field(
-        default=1, alias="CRYPTO_5M_MIN_CONFLUENCE"
+        default=0, alias="CRYPTO_5M_MIN_CONFLUENCE", ge=0, le=4
     )
     crypto_1h_min_confluence: int = Field(
-        default=2, alias="CRYPTO_1H_MIN_CONFLUENCE"
+        default=1, alias="CRYPTO_1H_MIN_CONFLUENCE", ge=0, le=4
     )
     # Daily caps per horizon — long-horizon BTC markets only.
     crypto_daily_max_trades: int = Field(
@@ -786,7 +789,7 @@ class Settings(BaseSettings):
     # Stale feed watchdog: if both Binance + Coinbase tickers are older
     # than this, no new entry until a fresh tick arrives.
     crypto_feed_stale_ms: int = Field(
-        default=3000, alias="CRYPTO_FEED_STALE_MS"
+        default=10000, alias="CRYPTO_FEED_STALE_MS"
     )
     crypto_price_sources_raw: str = Field(
         default="binance,coinbase", alias="CRYPTO_PRICE_SOURCES"

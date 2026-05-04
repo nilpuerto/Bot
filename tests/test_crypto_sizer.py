@@ -64,10 +64,19 @@ def test_first_entry_concurrent_cap_dominates(monkeypatch: pytest.MonkeyPatch) -
 
 def test_first_entry_below_min_trade_usd_returns_zero(monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_defaults(monkeypatch)
+    monkeypatch.setattr("app.services.crypto_sizer.settings.crypto_floor_min_ticket", False)
     # 100 * 0.5% kelly = $0.5 -> below min $2.
     s = first_entry_size(balance=100.0, edge_pct=2.0)
     assert s.amount_usd == 0.0
     assert s.reason == "edge_too_small"
+
+
+def test_first_entry_floor_raises_small_kelly_to_min_ticket(monkeypatch: pytest.MonkeyPatch) -> None:
+    _patch_defaults(monkeypatch)
+    monkeypatch.setattr("app.services.crypto_sizer.settings.crypto_floor_min_ticket", True)
+    s = first_entry_size(balance=100.0, edge_pct=2.0)
+    assert s.amount_usd == pytest.approx(2.0)
+    assert s.reason == "ok"
 
 
 def test_first_entry_concurrent_cap_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:

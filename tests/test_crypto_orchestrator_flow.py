@@ -80,7 +80,7 @@ def test_full_pipeline_passes_strong_setup() -> None:
     )
     assert quote is not None
     assert quote.side == "yes"
-    assert quote.edge_pct >= 3.5  # default crypto_min_edge_pct
+    assert quote.edge_pct >= 0.5  # comfortably above permissive prod default
 
     # TA: declining series prior is irrelevant here — we just want at
     # least one indicator on the LONG side.  Force a very oversold RSI.
