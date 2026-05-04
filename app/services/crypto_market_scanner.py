@@ -203,7 +203,19 @@ def classify(market: MarketSnapshot) -> Optional[CryptoMarket]:
 
 # ---- scanner --------------------------------------------------------------
 
-OnMarket = Callable[[CryptoMarket], Awaitable[None]]
+OnMarket = Callable[[CryptoMarket], Awaitable[Optional[str]]]
+"""Callback contract for new markets.
+
+The handler may return:
+
+* ``None`` / ``"ok"`` — the market was processed (success or final skip).
+* ``"retry"`` — transient skip (e.g. feed warming up); the scanner will
+  re-evaluate the market on subsequent ticks instead of silently
+  dropping it from the seen-set.
+"""
+
+_TRANSIENT_RETRY_REASONS = {"feed_warming", "feed_stale"}
+_MAX_RETRY_AGE_S = 90.0
 
 
 class CryptoMarketScanner:
@@ -216,6 +228,7 @@ class CryptoMarketScanner:
         self._poly = polymarket
         self._stop = asyncio.Event()
         self._seen_ids: set[str] = set()
+        self._pending: dict[str, tuple[CryptoMarket, float]] = {}
         self._interval = max(2, settings.crypto_scanner_interval_seconds)
         self._tick_i = 0
         self._last_tick_log_m: float = 0.0
@@ -257,6 +270,8 @@ class CryptoMarketScanner:
         for market in merged.values():
             if not market.id or market.id in self._seen_ids:
                 continue
+            if market.id in self._pending:
+                continue
             res = classify_with_reason(market)
             if res.cm is None:
                 reject_counts[res.reason] = reject_counts.get(res.reason, 0) + 1
@@ -268,6 +283,15 @@ class CryptoMarketScanner:
 
         if len(self._seen_ids) > 5_000:
             self._seen_ids = set(list(self._seen_ids)[-2_500:])
+
+        # Re-process markets previously kept "pending" (transient skip).
+        retry_markets: list[CryptoMarket] = []
+        now_ts = time.monotonic()
+        for mid, (cm, first_seen) in list(self._pending.items()):
+            if cm.seconds_left <= 5 or now_ts - first_seen > _MAX_RETRY_AGE_S:
+                self._pending.pop(mid, None)
+                continue
+            retry_markets.append(cm)
 
         now_m = time.monotonic()
         if now_m - self._last_tick_log_m >= 60.0:
@@ -293,14 +317,35 @@ class CryptoMarketScanner:
                 strike_kind=cm.strike_kind,
                 strike=cm.strike,
             )
-            try:
-                await on_market(cm)
-            except Exception as exc:  # noqa: BLE001
-                logger.exception(
-                    "crypto_market_handler_error",
-                    market_id=cm.market.id,
-                    error=str(exc),
-                )
+            await self._dispatch(on_market, cm, first_attempt=True)
+
+        for cm in retry_markets:
+            await self._dispatch(on_market, cm, first_attempt=False)
+
+    async def _dispatch(
+        self,
+        on_market: OnMarket,
+        cm: CryptoMarket,
+        *,
+        first_attempt: bool,
+    ) -> None:
+        try:
+            result = await on_market(cm)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "crypto_market_handler_error",
+                market_id=cm.market.id,
+                error=str(exc),
+            )
+            self._pending.pop(cm.market.id, None)
+            return
+
+        if result == "retry":
+            if first_attempt:
+                self._pending[cm.market.id] = (cm, time.monotonic())
+            # Otherwise it's already in self._pending.
+            return
+        self._pending.pop(cm.market.id, None)
 
 
 __all__ = [

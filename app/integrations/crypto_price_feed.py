@@ -97,7 +97,7 @@ class PriceSnapshot:
 
     @property
     def is_warm(self) -> bool:
-        return self.sample_count >= 60
+        return self.sample_count >= max(1, settings.crypto_feed_warmup_samples)
 
 
 @dataclass
@@ -117,9 +117,10 @@ class CryptoPriceFeed:
         self._venues: dict[str, _VenueState] = {}
         self._sigma = EwmaSigma()
         self._last_sigma_update = 0.0
-        # We update the EWMA at most once per second using the median spot
-        # so a single venue's tick burst doesn't spuriously inflate sigma.
-        self._sigma_interval = 1.0
+        # We update the EWMA using the median spot, throttled to keep a
+        # single venue's tick burst from spuriously inflating sigma.  The
+        # default is short so warm-up takes only a few seconds after start.
+        self._sigma_interval = max(0.05, float(settings.crypto_sigma_interval_s))
 
     # ---- lifecycle ------------------------------------------------------
 

@@ -151,11 +151,11 @@ class CryptoOrchestrator:
 
     # ---- market handler -------------------------------------------------
 
-    async def _on_new_market(self, cm: CryptoMarket) -> None:
+    async def _on_new_market(self, cm: CryptoMarket) -> Optional[str]:
         users = await self._crypto_users()
         if not users:
             logger.debug("crypto_no_users", market_id=cm.market.id)
-            return
+            return None
 
         snap = self._feed.snapshot()
         if not snap.is_fresh:
@@ -163,13 +163,13 @@ class CryptoOrchestrator:
                 "crypto_skip", reason="feed_stale", age_ms=snap.age_ms,
                 sources=snap.sources, market_id=cm.market.id,
             )
-            return
+            return "retry"
         if not snap.is_warm:
             logger.info(
                 "crypto_skip", reason="feed_warming",
                 samples=snap.sample_count, market_id=cm.market.id,
             )
-            return
+            return "retry"
         spot = snap.spot or 0.0
 
         strike = cm.strike if cm.strike_kind == "absolute" and cm.strike else spot

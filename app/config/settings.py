@@ -791,6 +791,18 @@ class Settings(BaseSettings):
     crypto_feed_stale_ms: int = Field(
         default=10000, alias="CRYPTO_FEED_STALE_MS"
     )
+    # Minimum EWMA-σ samples before the feed is considered "warm" for
+    # trading.  At 1 sample/s the feed warms in ~N seconds; default 5 so
+    # the bot starts evaluating new markets within ~1 s of start-up.
+    crypto_feed_warmup_samples: int = Field(
+        default=5, alias="CRYPTO_FEED_WARMUP_SAMPLES", ge=1, le=600
+    )
+    # Throttle (seconds) between EWMA σ updates.  Smaller values yield a
+    # faster warm-up at the cost of slightly more sensitivity to single
+    # tick spikes.  0.2 s is a good balance.
+    crypto_sigma_interval_s: float = Field(
+        default=0.2, alias="CRYPTO_SIGMA_INTERVAL_S", ge=0.05, le=5.0
+    )
     crypto_price_sources_raw: str = Field(
         default="binance,coinbase", alias="CRYPTO_PRICE_SOURCES"
     )
