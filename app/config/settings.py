@@ -798,6 +798,21 @@ class Settings(BaseSettings):
         default=False, alias="CRYPTO_LONGSHOT_ONLY"
     )
     # TA confluence floors per horizon (0..4 indicators agreeing).
+    # Comma-separated horizons the engine will trade.  Empty / "all" =
+    # all three.  Examples:
+    #   CRYPTO_HORIZONS_ENABLED=5m,1h         (skip the monthly 1d markets)
+    #   CRYPTO_HORIZONS_ENABLED=5m            (only fast 5-minute binaries)
+    crypto_horizons_enabled_raw: str = Field(
+        default="5m,1h,1d", alias="CRYPTO_HORIZONS_ENABLED"
+    )
+
+    @property
+    def crypto_horizons_enabled(self) -> set[str]:
+        raw = (self.crypto_horizons_enabled_raw or "").strip().lower()
+        if not raw or raw in {"all", "*"}:
+            return {"5m", "1h", "1d"}
+        return {token.strip() for token in raw.split(",") if token.strip()}
+
     crypto_5m_min_confluence: int = Field(
         default=0, alias="CRYPTO_5M_MIN_CONFLUENCE", ge=0, le=4
     )

@@ -222,7 +222,17 @@ class CryptoMarketScanner:
     """Polls Polymarket Gamma for fresh BTC binary markets."""
 
     # Search queries we hit on each tick; deduplicated by market id.
-    _QUERIES = ("bitcoin", "btc", "bitcoin up or down")
+    # The "up or down" / "next 5 minutes" variants are crucial for the
+    # short-horizon BTC binaries — Gamma's full-text search ranks them
+    # below the bulky monthly markets without an explicit hint.
+    _QUERIES = (
+        "bitcoin",
+        "btc",
+        "bitcoin up or down",
+        "btc up or down",
+        "bitcoin 5m",
+        "bitcoin hourly",
+    )
 
     def __init__(self, polymarket: PolymarketClient) -> None:
         self._poly = polymarket
@@ -297,11 +307,15 @@ class CryptoMarketScanner:
         if now_m - self._last_tick_log_m >= 60.0:
             self._last_tick_log_m = now_m
             btc_count = max(0, len(merged) - reject_counts.get("not_btc", 0))
+            horizons_breakdown: dict[str, int] = {"5m": 0, "1h": 0, "1d": 0}
+            for cm in new_markets:
+                horizons_breakdown[cm.horizon] = horizons_breakdown.get(cm.horizon, 0) + 1
             logger.info(
                 "crypto_scanner_tick",
                 catalogue=len(merged),
                 btc_candidates=btc_count,
                 batch_discovered=len(new_markets),
+                horizons=horizons_breakdown,
                 seen_ids=len(self._seen_ids),
                 rejects=reject_counts,
                 sample=sample_btc_rejects,

@@ -173,6 +173,18 @@ class CryptoOrchestrator:
             return "retry"
         spot = snap.spot or 0.0
 
+        enabled = settings.crypto_horizons_enabled
+        if cm.horizon not in enabled:
+            logger.info(
+                "crypto_skip",
+                reason="horizon_disabled",
+                horizon=cm.horizon,
+                enabled=sorted(enabled),
+                market_id=cm.market.id,
+                slug=cm.market.slug,
+            )
+            return
+
         strike = cm.strike if cm.strike_kind == "absolute" and cm.strike else spot
         seconds_left = cm.seconds_left
         if seconds_left <= 5:
