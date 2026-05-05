@@ -71,7 +71,11 @@ class TradeExecutor:
         plan: SizingPlan,
     ) -> ExecutionResult:
         """Perform all final-leg checks + write the trade."""
-        is_crypto = getattr(signal, "category", None) == "crypto"
+        # Crypto and MAX both run on dedicated daily/concurrent caps —
+        # they must not be throttled by the news-pipeline's TradeLimiter
+        # (similar-open, MAX_TRADES_PER_DAY, etc.).
+        category = (getattr(signal, "category", None) or "").lower()
+        is_crypto = category in {"crypto", "max"}
         decision = await self._limiter.check(
             user=user,
             market_id=market.id,
@@ -205,7 +209,8 @@ class TradeExecutor:
         async with session_scope() as session:
             repo = SignalsRepository(session)
             sig = await repo.get(signal_id)
-            bump_daily = getattr(sig, "category", None) != "crypto" if sig else True
+            sig_cat = (getattr(sig, "category", None) or "").lower() if sig else ""
+            bump_daily = sig_cat not in {"crypto", "max"}
             await repo.set_status(signal_id, SignalStatus.ACTED)
         await self._limiter.register_trade(user_id, bump_global_daily=bump_daily)
 

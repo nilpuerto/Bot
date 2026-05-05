@@ -175,6 +175,40 @@ class PolymarketClient:
 
     # ---- Gamma REST (markets) -------------------------------------------
 
+    async def fetch_markets_for_event_slug(
+        self, slug: str, *, active: bool = True
+    ) -> list[MarketSnapshot]:
+        """Return Gamma markets nested under ``/events?slug=...``.
+
+        Faster and more deterministic than fuzzy ``/markets`` search for
+        5-minute BTC slugs whose 24-hour volume hides them below the fold.
+        """
+        assert self._http is not None
+        params: dict[str, Any] = {
+            "slug": slug,
+            "limit": "5",
+        }
+        if active:
+            params["active"] = "true"
+            params["closed"] = "false"
+        try:
+            resp = await self._http.get(f"{GAMMA_BASE}/events", params=params)
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("gamma_events_slug_error", slug=slug, error=str(exc))
+            return []
+        payload = resp.json()
+        if not isinstance(payload, list):
+            return []
+        out: list[MarketSnapshot] = []
+        for ev in payload:
+            if not isinstance(ev, dict):
+                continue
+            for raw in ev.get("markets") or []:
+                if isinstance(raw, dict):
+                    out.append(_parse_market(raw))
+        return out
+
     async def search_markets(self, query: str, limit: int = 10) -> list[MarketSnapshot]:
         """Full-text search for active markets matching ``query``."""
         assert self._http is not None

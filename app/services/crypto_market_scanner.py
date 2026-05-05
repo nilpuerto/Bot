@@ -128,6 +128,13 @@ class ClassifyResult:
     reason: str  # "ok" or short rejection code
 
 
+_RE_DAILY_STRIKE = re.compile(
+    r"(the price of bitcoin be above|the price of bitcoin be below|"
+    r"will bitcoin (be )?(above|below|hit|reach|dip to)|bitcoin (above|below) ?\$)",
+    re.I,
+)
+
+
 def classify_with_reason(market: MarketSnapshot) -> ClassifyResult:
     """Same as :func:`classify` but also returns *why* a market was rejected."""
     slug = (market.slug or "").lower()
@@ -175,6 +182,16 @@ def classify_with_reason(market: MarketSnapshot) -> ClassifyResult:
             # Any other BTC binary still falls under the 1d bucket so the engine
             # at least *evaluates* it; the edge gate will reject if there is none.
             horizon = "1d"
+
+    # "Above $X on May 5" style markets resolve same-day / overnight; bucket as 1h
+    # so CRYPTO_HORIZONS_ENABLED=5m,1h does not silently drop intraday strikes.
+    if (
+        horizon == "1d"
+        and settings.crypto_subdaily_strike_as_1h
+        and seconds_left < 48 * 3600
+        and _RE_DAILY_STRIKE.search(blob)
+    ):
+        horizon = "1h"
 
     if not market.yes_token_id or not market.no_token_id:
         return ClassifyResult(None, "no_clob_tokens")
@@ -230,6 +247,7 @@ class CryptoMarketScanner:
         "bitcoin",
         "btc",
         "bitcoin up or down",
+        "Bitcoin Up or Down",
         "btc up or down",
         "bitcoin 5m",
         "bitcoin hourly",
@@ -241,7 +259,6 @@ class CryptoMarketScanner:
         self._seen_ids: set[str] = set()
         self._pending: dict[str, tuple[CryptoMarket, float]] = {}
         self._interval = max(2, settings.crypto_scanner_interval_seconds)
-        self._tick_i = 0
         self._last_tick_log_m: float = 0.0
 
     def stop(self) -> None:
@@ -262,16 +279,29 @@ class CryptoMarketScanner:
 
     async def _tick(self, on_market: OnMarket) -> None:
         merged: dict[str, MarketSnapshot] = {}
-        for query in self._QUERIES:
-            for m in await self._poly.search_markets(query, limit=50):
+
+        # 1) Broad catalogue: top by volume (crypto scanner ran too narrow —
+        # search overlap + list_active only every 3 ticks hid low-volume 5m BTC).
+        vol_lim = max(50, int(settings.crypto_scanner_list_active_limit))
+        for m in await self._poly.list_active_markets(
+            limit=vol_lim, order="volume24hr", ascending=False
+        ):
+            if m.id:
+                merged[m.id] = m
+
+        # 2) Soon-ending markets (5m windows have low 24h volume vs macro markets).
+        ed_lim = max(0, int(settings.crypto_scanner_list_enddate_limit))
+        if settings.crypto_scanner_list_by_enddate and ed_lim > 0:
+            for m in await self._poly.list_active_markets(
+                limit=ed_lim, order="endDate", ascending=True
+            ):
                 if m.id:
                     merged[m.id] = m
 
-        # Every ~15s also merge high-volume active markets — search alone
-        # often misses short-lived BTC 5m listings already in the catalogue.
-        self._tick_i += 1
-        if self._tick_i % 3 == 0:
-            for m in await self._poly.list_active_markets(limit=200):
+        # 3) Gamma full-text search (diverse queries to reduce overlap).
+        sq = max(20, int(settings.crypto_scanner_search_limit))
+        for query in self._QUERIES:
+            for m in await self._poly.search_markets(query, limit=sq):
                 if m.id:
                     merged[m.id] = m
 

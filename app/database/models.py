@@ -45,6 +45,11 @@ class UserMode(str, enum.Enum):
     # the user is excluded from the news/cluster routing entirely; only the
     # crypto orchestrator opens trades for them.
     CRYPTO = "crypto"
+    # MAX Mode - clock-snipe BTC 5-minute Up/Down binaries at T-10s using
+    # window-delta-dominant TA composite signal; aggressive sizing (only
+    # cumulative profit is at risk; falls back to 30 % bankroll on a fresh
+    # account).  Excluded from news routing.
+    MAX = "max"
 
 
 class SignalImpact(str, enum.Enum):

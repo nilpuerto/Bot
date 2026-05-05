@@ -317,7 +317,7 @@ START_MESSAGE = (
 
 def mode_changed(mode: UserMode | str) -> str:
     value = mode.value if hasattr(mode, "value") else str(mode)
-    emoji = {"safe": "🛡", "semi": "⚖", "auto": "⚡", "crypto": "₿"}.get(value, "•")
+    emoji = {"safe": "🛡", "semi": "⚖", "auto": "⚡", "crypto": "₿", "max": "🚀"}.get(value, "•")
     return f"Mode set to {emoji} *{escape_md(value.upper())}*\\."
 
 
@@ -420,6 +420,63 @@ def crypto_skip_log(reason: str, **fields: object) -> str:
     """Compact, non-Markdown debugging line (logger only)."""
     parts = " ".join(f"{k}={v}" for k, v in fields.items())
     return f"crypto_skip reason={reason} {parts}"
+
+
+# ---------- MAX Mode -------------------------------------------------------
+
+def max_mode_switched() -> str:
+    """Sent right after the user flips ``/mode -> MAX``."""
+    return (
+        "🚀 *MAX MODE ACTIVE*\n\n"
+        "▸ BTC `5m` Up/Down sniper — fires at *T\\-10s* before close\\.\n"
+        "▸ Window\\-delta dominant signal \\(7 weighted indicators\\)\\.\n"
+        "▸ *Aggressive sizing*: bets only your accumulated MAX profit\\. "
+        "If profit ≤ 0, falls back to `30%` of bankroll\\.\n"
+        "▸ News pipeline muted — no auto SL/TP\\.\n"
+        "▸ Use `/close <id>` to exit early\\."
+    )
+
+
+def max_entry_card(
+    *,
+    side: str,
+    entry_price: float,
+    size_usd: float,
+    balance: float,
+    cumulative_profit: float,
+    confidence: float,
+    window_delta_pct: float,
+    reasons: list[str],
+    seconds_left: int,
+    fallback_used: bool,
+    slug: str | None,
+) -> str:
+    minutes = seconds_left // 60
+    seconds = seconds_left % 60
+    bal_pct = (size_usd / balance * 100.0) if balance > 0 else 0.0
+    reasons_str = (
+        ", ".join(escape_md(r) for r in reasons) if reasons else "no_reasons"
+    )
+    profit_line = (
+        f"▸ *Funding* `30% bankroll` \\(no profit yet\\)\n"
+        if fallback_used
+        else f"▸ *Funding* profits `\\${escape_md(f'{cumulative_profit:,.2f}')}`\n"
+    )
+    slug_line = (
+        f"▸ *Market*  `{escape_md(slug)}`\n" if slug else ""
+    )
+    return (
+        f"🚀 *MAX BTC 5m — {escape_md(side.upper())} OPENED*\n\n"
+        f"{slug_line}"
+        f"▸ *Entry*    `{escape_md(f'{entry_price:.3f}')}` "
+        f"\\(\\${escape_md(f'{size_usd:,.2f}')}, "
+        f"{escape_md(f'{bal_pct:.1f}')}% bal\\)\n"
+        f"▸ *Window Δ* `{escape_md(f'{window_delta_pct:+.3f}%')}`  •  "
+        f"*Conf* `{escape_md(f'{confidence:.2f}')}`\n"
+        f"{profit_line}"
+        f"▸ *Reasons*  {reasons_str}\n"
+        f"▸ *Closes in* `{minutes:02d}:{seconds:02d}`"
+    )
 
 
 # ---------- /settings header -----------------------------------------------

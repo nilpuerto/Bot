@@ -86,11 +86,12 @@ class TradeMonitor:
     async def _process_trade(
         self, trade: Trade, price_cache: dict[str, Optional[float]]
     ) -> None:
-        # Crypto-Mode trades are exit-managed by the user (no auto SL/TP).
-        # We tag them via Signal.category='crypto' at creation time and
-        # skip them here entirely — only manual /close or expiry resolves
-        # them.  See app/core/crypto_orchestrator.py.
-        if await self._is_crypto_trade(trade):
+        # Crypto- and MAX-Mode trades are exit-managed by their dedicated
+        # orchestrators (or the binary expiry on Polymarket).  We tag the
+        # owning Signal with ``category='crypto'`` / ``'max'`` and skip
+        # them here entirely so the news-style trailing / hard-SL / partial
+        # TP ladder never fires on a 5-minute Up/Down binary.
+        if await self._is_externally_managed_trade(trade):
             return
 
         price = await self._fetch_price(trade.market_id, trade.side, price_cache)
@@ -197,11 +198,12 @@ class TradeMonitor:
                 exit_state=evaluation.new_exit_state,
             )
 
-    async def _is_crypto_trade(self, trade: Trade) -> bool:
-        """Return True when this trade was opened by Crypto Mode.
+    async def _is_externally_managed_trade(self, trade: Trade) -> bool:
+        """Return True when the Trade was opened by Crypto Mode or MAX Mode.
 
-        We persist a Signal row with ``category='crypto'`` at entry time,
-        so a single SELECT keeps the monitor untouched for AUTO/SEMI flows.
+        We persist a Signal row with ``category='crypto'`` / ``'max'`` at
+        entry time, so a single SELECT keeps the monitor untouched for
+        AUTO/SEMI flows while skipping the dedicated-orchestrator trades.
         """
         if trade.signal_id is None:
             return False
@@ -215,9 +217,13 @@ class TradeMonitor:
                 )
                 category = res.scalar_one_or_none()
         except Exception as exc:  # noqa: BLE001
-            logger.debug("crypto_check_failed", trade_id=trade.id, error=str(exc))
+            logger.debug("external_check_failed", trade_id=trade.id, error=str(exc))
             return False
-        return (category or "").lower() == "crypto"
+        return (category or "").lower() in {"crypto", "max"}
+
+    # Backwards-compat alias for any external callers still importing the
+    # old name (the test suite uses ``_is_crypto_trade`` directly).
+    _is_crypto_trade = _is_externally_managed_trade
 
     async def _fetch_price(
         self, market_id: str, side: TradeSide, cache: dict[str, Optional[float]]

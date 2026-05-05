@@ -197,6 +197,19 @@ async def _handle_mode(
                 show_alert=True,
             )
             return
+        if mode is UserMode.MAX and (
+            "user_mode" in diag or "invalid input value for enum" in diag
+        ):
+            logger.warning(
+                "mode_switch_enum_missing_max",
+                user_id=user.id,
+                error=str(origin or exc),
+            )
+            await query.answer(
+                "Falta migrar Postgres: en SQL ejecuta ALTER TYPE user_mode ADD VALUE IF NOT EXISTS 'max';",
+                show_alert=True,
+            )
+            return
         logger.exception(
             "mode_switch_db_error", user_id=user.id, mode=mode.value
         )

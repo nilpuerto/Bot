@@ -42,6 +42,7 @@ def mode_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton("₿ CRYPTO", callback_data="mode:crypto"),
+                InlineKeyboardButton("🚀 MAX", callback_data="mode:max"),
             ],
         ]
     )

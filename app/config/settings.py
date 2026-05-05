@@ -868,6 +868,27 @@ class Settings(BaseSettings):
     crypto_scanner_interval_seconds: int = Field(
         default=5, alias="CRYPTO_SCANNER_INTERVAL_SECONDS"
     )
+    # Gamma ``/markets`` pagination: text-search row count per query.
+    crypto_scanner_search_limit: int = Field(
+        default=80, alias="CRYPTO_SCANNER_SEARCH_LIMIT", ge=10, le=200
+    )
+    # How many active markets to merge ranked by 24h volume (catches macro BTC).
+    crypto_scanner_list_active_limit: int = Field(
+        default=400, alias="CRYPTO_SCANNER_LIST_ACTIVE_LIMIT", ge=50, le=2000
+    )
+    # Second pass: soonest end times first — surfaces 5m / 15m BTC binaries with
+    # low 24h volume that never appear in the volume top-N.
+    crypto_scanner_list_by_enddate: bool = Field(
+        default=True, alias="CRYPTO_SCANNER_LIST_BY_ENDDATE"
+    )
+    crypto_scanner_list_enddate_limit: int = Field(
+        default=350, alias="CRYPTO_SCANNER_LIST_ENDDATE_LIMIT", ge=0, le=2000
+    )
+    # Re-bucket "BTC above $X on {date}" style questions from 1d → 1h when <48h
+    # to match CRYPTO_HORIZONS_ENABLED=5m,1h (they are not month-long strikes).
+    crypto_subdaily_strike_as_1h: bool = Field(
+        default=True, alias="CRYPTO_SUBDAILY_STRIKE_AS_1H"
+    )
     # News overlay (sentiment context only — never a hard gate).  Affects
     # 1h sizing +/- and 1d veto when contradiction is extreme.
     crypto_news_overlay_enabled: bool = Field(
@@ -890,6 +911,124 @@ class Settings(BaseSettings):
     # send a Telegram nudge (no auto-close — user said no auto SL/TP).
     crypto_exit_suggestion_edge_pct: float = Field(
         default=-3.0, alias="CRYPTO_EXIT_SUGGESTION_EDGE_PCT"
+    )
+
+    # ---- MAX Mode (BTC 5-min Up/Down sniper) ---------------------------
+    # Independent of the news / crypto pipelines.  When a user has
+    # ``UserMode.MAX`` the dedicated MAX orchestrator owns their entries;
+    # the news engine never produces trades for them.
+    max_mode_enabled: bool = Field(default=True, alias="MAX_MODE_ENABLED")
+    # Confidence tier for *full*-size deployments.  Above this the sniper may
+    # fire early; between ``MAX_WEAK_CONFIDENCE_FLOOR`` and here the trade
+    # still fires but sizing is shrunk (``MAX_WEAK_TRADE_FRACTION``).
+    max_min_confidence: float = Field(
+        default=0.30, alias="MAX_MIN_CONFIDENCE", ge=0.0, le=1.0
+    )
+    # Below ``MAX_MIN_CONFIDENCE`` but ≥ this floor: still tradable with
+    # reduced size, or as a spike / deadline recovery when |window_delta|
+    # clears the absolute-% gates below.
+    max_weak_confidence_floor: float = Field(
+        default=0.15, alias="MAX_WEAK_CONFIDENCE_FLOOR", ge=0.0, le=1.0
+    )
+    # Fraction of the nominal MAX ticket when ``weak_floor ≤ conf < min``.
+    max_weak_trade_fraction: float = Field(
+        default=0.38, alias="MAX_WEAK_TRADE_FRACTION", ge=0.05, le=1.0
+    )
+    # At the T-deadline: if |window_delta| ≥ this (absolute %), allow a
+    # micro ticket even when confidence is poor (lottery filter still applies).
+    max_deadline_delta_abs_pct: float = Field(
+        default=0.025, alias="MAX_DEADLINE_DELTA_ABS_PCT", ge=0.0, le=5.0
+    )
+    max_deadline_trade_fraction: float = Field(
+        default=0.22, alias="MAX_DEADLINE_TRADE_FRACTION", ge=0.05, le=1.0
+    )
+    # Skip random coin-flip deadlines: |delta| below this *and* weak confidence.
+    max_flat_deadline_skip_abs_pct: float = Field(
+        default=0.008, alias="MAX_FLAT_DEADLINE_SKIP_ABS_PCT", ge=0.0, le=1.0
+    )
+    # Spike detection also needs either high confidence *or* a clear window
+    # delta (absolute %), otherwise micro-noise triggers bad entries.
+    max_spike_min_delta_abs_pct: float = Field(
+        default=0.035, alias="MAX_SPIKE_MIN_DELTA_ABS_PCT", ge=0.0, le=5.0
+    )
+    # Early fire (before deadline) when confidence is only "weak" tier.
+    max_early_delta_abs_pct: float = Field(
+        default=0.06, alias="MAX_EARLY_DELTA_ABS_PCT", ge=0.0, le=5.0
+    )
+    # Skip asks with almost no upside left: require (1 - ask) ≥ this.
+    max_min_token_upside: float = Field(
+        default=0.025, alias="MAX_MIN_TOKEN_UPSIDE", ge=0.005, le=0.49
+    )
+    # When window-delta is decisive, allow slightly pricier asks (still capped).
+    max_relaxed_max_entry_price: float = Field(
+        default=0.985, alias="MAX_RELAXED_MAX_ENTRY_PRICE", ge=0.50, le=0.999
+    )
+    max_relaxed_entry_decisive_only: bool = Field(
+        default=True, alias="MAX_RELAXED_ENTRY_DECISIVE_ONLY"
+    )
+    # When score jumps by ≥ this between consecutive 2-second polls and
+    # confidence ≥ MIN_CONFIDENCE, fire immediately ("teetering moment").
+    max_snipe_spike_threshold: float = Field(
+        default=1.5, alias="MAX_SNIPE_SPIKE_THRESHOLD", ge=0.5, le=10.0
+    )
+    # Sweet-spot timing knobs.  Lookahead is when the polling loop arms
+    # before window close; deadline is the hard moment to fire with the
+    # best-seen signal even if confidence never quite reached the floor.
+    max_snipe_lookahead_seconds: int = Field(
+        default=10, alias="MAX_SNIPE_LOOKAHEAD_SECONDS", ge=3, le=60
+    )
+    max_snipe_deadline_seconds: int = Field(
+        default=5, alias="MAX_SNIPE_DEADLINE_SECONDS", ge=1, le=30
+    )
+    # Per-trade cap and concurrent cap as % of effective bankroll.
+    # The aggressive policy is "bet your profits"; these caps catch the
+    # case where profits compounded past the danger zone.
+    max_per_trade_cap_pct: float = Field(
+        default=12.0, alias="MAX_PER_TRADE_CAP_PCT", ge=0.5, le=100.0
+    )
+    max_concurrent_cap_pct: float = Field(
+        default=45.0, alias="MAX_CONCURRENT_CAP_PCT", ge=1.0, le=100.0
+    )
+    # Fallback when cumulative MAX-mode profit is ≤ 0 — bet this % of
+    # bankroll.  30 % matches "Aggressive" mode of the BTC-5m guide.
+    max_bankroll_fallback_pct: float = Field(
+        default=30.0, alias="MAX_BANKROLL_FALLBACK_PCT", ge=1.0, le=100.0
+    )
+    # Cap on the entry ask: tokens above this never get bought (no
+    # remaining upside).  0.95 leaves $0.05/share if it resolves yes.
+    max_max_entry_price: float = Field(
+        default=0.97, alias="MAX_MAX_ENTRY_PRICE", ge=0.50, le=1.0
+    )
+    # GTC limit fallback price when no asks exist (we become the
+    # liquidity).  Disabled by default — flip on if you want to stake
+    # the wider book at $0.95.
+    max_use_limit_fallback: bool = Field(
+        default=False, alias="MAX_USE_LIMIT_FALLBACK"
+    )
+    max_limit_fallback_price: float = Field(
+        default=0.95, alias="MAX_LIMIT_FALLBACK_PRICE", ge=0.50, le=0.99
+    )
+    # Slug templates tried when resolving the active 5-minute window.
+    # Use "{ts}" as a placeholder for the Unix timestamp aligned to 300.
+    max_slug_templates: str = Field(
+        default="btc-updown-5m-{ts},bitcoin-up-or-down-5m-{ts}",
+        alias="MAX_SLUG_TEMPLATES",
+    )
+    # How long to wait for a fresh price feed sample before giving up on
+    # capturing the window-open price (collapses signal to 0 score).
+    max_open_capture_timeout_s: float = Field(
+        default=20.0, alias="MAX_OPEN_CAPTURE_TIMEOUT_S", ge=1.0, le=60.0
+    )
+    # Polymarket RTDS Chainlink stream — aligns window open & spot with
+    # the same oracle Polymarket uses for resolution (when available).
+    max_chainlink_oracle_enabled: bool = Field(
+        default=True, alias="MAX_CHAINLINK_ORACLE_ENABLED"
+    )
+    max_chainlink_stale_ms: int = Field(
+        default=15_000, alias="MAX_CHAINLINK_STALE_MS", ge=3000, le=120_000
+    )
+    max_chainlink_ping_interval_s: float = Field(
+        default=5.0, alias="MAX_CHAINLINK_PING_INTERVAL_S", ge=2.0, le=60.0
     )
 
     # ---- Housekeeping / retention ---------------------------------------

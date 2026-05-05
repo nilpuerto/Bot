@@ -27,6 +27,7 @@ from typing import Optional
 
 from app.config.settings import settings
 from app.core.crypto_orchestrator import CryptoOrchestrator
+from app.core.max_orchestrator import MaxOrchestrator
 from app.core.scheduler import run_periodic
 from app.database.models import (
     Signal,
@@ -96,6 +97,7 @@ class Orchestrator:
         self._universe: Optional[MarketUniverseService] = None
         self._pending: Optional[PendingNewsQueue] = None
         self._crypto: Optional[CryptoOrchestrator] = None
+        self._max: Optional[MaxOrchestrator] = None
         self._feedback = FeedbackLoop()
         self._app = None  # telegram.ext.Application
 
@@ -171,6 +173,21 @@ class Orchestrator:
                 bot=self._app.bot,
             )
 
+        if settings.max_mode_enabled:
+            # Reuse the crypto price feed + candle cache when both modes
+            # are enabled — both subscribe to the same Binance / Coinbase
+            # streams and a shared cache halves WS / REST traffic.
+            shared_feed = self._crypto._feed if self._crypto else None
+            shared_candles = self._crypto._candles if self._crypto else None
+            self._max = MaxOrchestrator(
+                polymarket=self._poly,
+                executor=self._executor,
+                balance=self._balance,
+                bot=self._app.bot,
+                feed=shared_feed,
+                candles=shared_candles,
+            )
+
         self._install_signal_handlers()
 
         await self._app.initialize()
@@ -200,11 +217,18 @@ class Orchestrator:
             coros.append(self._pending_retry_loop())
         if self._crypto is not None:
             await self._crypto.start()
+        if self._max is not None:
+            await self._max.start()
         await asyncio.gather(*coros)
 
     async def shutdown(self) -> None:
         logger.info("orchestrator_shutting_down")
         self._request_stop()
+        if self._max:
+            try:
+                await self._max.stop()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("max_shutdown_error", error=str(exc))
         if self._crypto:
             try:
                 await self._crypto.stop()
@@ -752,6 +776,7 @@ class Orchestrator:
                 if u.is_active
                 and u.notifications_enabled
                 and u.mode != UserMode.CRYPTO
+                and u.mode != UserMode.MAX
             ]
             if should_broadcast_signal
             else []
