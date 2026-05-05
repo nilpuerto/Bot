@@ -13,6 +13,8 @@ to handle half-executed writes.
 """
 from __future__ import annotations
 
+import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
@@ -58,6 +60,22 @@ class TradeExecutor:
     def __init__(self, polymarket: PolymarketClient, limiter: TradeLimiter) -> None:
         self._poly = polymarket
         self._limiter = limiter
+        # Serialize opens on the same (user, market) so two concurrent pipelines
+        # (scanner + late scoop, double scanner tick, etc.) cannot both pass the
+        # limiter before the first INSERT commits — PENDING dup fix alone is not
+        # enough under READ COMMITTED.
+        self._open_serial_meta = asyncio.Lock()
+        self._open_serial_by_market: dict[tuple[int, str], asyncio.Lock] = {}
+
+    @asynccontextmanager
+    async def _serialized_market_open(self, user_id: int, market_id: str):
+        key = (user_id, market_id)
+        async with self._open_serial_meta:
+            if key not in self._open_serial_by_market:
+                self._open_serial_by_market[key] = asyncio.Lock()
+            gate = self._open_serial_by_market[key]
+        async with gate:
+            yield
 
     # ---- open ------------------------------------------------------------
 
@@ -71,6 +89,24 @@ class TradeExecutor:
         plan: SizingPlan,
     ) -> ExecutionResult:
         """Perform all final-leg checks + write the trade."""
+        async with self._serialized_market_open(user.id, market.id):
+            return await self._open_trade_inner(
+                user=user,
+                signal=signal,
+                market=market,
+                side=side,
+                plan=plan,
+            )
+
+    async def _open_trade_inner(
+        self,
+        *,
+        user: User,
+        signal: Signal,
+        market: MarketSnapshot,
+        side: str,
+        plan: SizingPlan,
+    ) -> ExecutionResult:
         # Crypto and MAX both run on dedicated daily/concurrent caps —
         # they must not be throttled by the news-pipeline's TradeLimiter
         # (similar-open, MAX_TRADES_PER_DAY, etc.).

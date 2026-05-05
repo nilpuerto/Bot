@@ -46,11 +46,18 @@ class TradesRepository:
         return await self.list_open(user_id=None)
 
     async def has_open_on_market(self, user_id: int, market_id: str) -> bool:
+        """True if user already has an active position on this ``market_id``.
+
+        Counts both ``OPEN`` **and** ``PENDING`` trades.  A second open used
+        to slip through while the first row was still ``PENDING`` during CLOB
+        submission (READ COMMITTED could not see the row yet, or a parallel
+        task passed the OPEN-only check).
+        """
         res = await self.session.execute(
             select(Trade.id).where(
                 Trade.user_id == user_id,
                 Trade.market_id == market_id,
-                Trade.status == TradeStatus.OPEN,
+                Trade.status.in_((TradeStatus.OPEN, TradeStatus.PENDING)),
             )
         )
         return res.first() is not None

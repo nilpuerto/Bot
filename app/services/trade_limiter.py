@@ -15,7 +15,9 @@ Philosophy: Prym Signals is a *precision* trader, not a volume trader.
   etc.).
 
 Duplicate-market, market re-entry, and similarity rules still apply to both —
-they operate on IDs / questions, not pipelines.
+they operate on IDs / questions, not pipelines.  ``has_open_on_market`` counts
+``PENDING`` + ``OPEN`` so in-flight orders block duplicates; :class:`TradeExecutor`
+also serializes opens per ``(user_id, market_id)`` to close the race before commit.
 """
 from __future__ import annotations
 

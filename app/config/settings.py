@@ -824,8 +824,11 @@ class Settings(BaseSettings):
     )
     # When false, the trade limiter does NOT block crypto trades on the
     # ``similar_open_trade`` rule (different BTC strikes share a topic
-    # slug but are economically distinct positions).  Default false so
-    # the engine can stack 80k/82k/86k strikes simultaneously.
+    # slug but are economically distinct positions).  Set ``true`` if you
+    # see duplicate opens on two Polymarket listings with nearly identical
+    # questions (same narrative, different market IDs).  Default false so
+    # the engine can stack 80k/82k/86k strikes simultaneously when their
+    # slugs differ.
     crypto_enforce_similar_open_check: bool = Field(
         default=False, alias="CRYPTO_ENFORCE_SIMILAR_OPEN_CHECK"
     )
